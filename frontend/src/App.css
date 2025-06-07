@@ -1,0 +1,57 @@
+/* Google Mapsのスタイル調整 */
+.gm-style-cc {
+  display: none !important;
+}
+
+.gm-style a[href^="https://maps.google.com/maps"] {
+  display: none !important;
+}
+
+/* スクロールバーのカスタマイズ */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #f1f1f1;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #888;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #555;
+}
+
+/* アニメーション */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.fade-in {
+  animation: fadeIn 0.3s ease-out;
+}
+
+/* レスポンシブ対応 */
+@media (max-width: 1200px) {
+  .main-container {
+    padding: 10px;
+  }
+}
+
+@media (max-width: 768px) {
+  .header-stats {
+    display: none;
+  }
+}
