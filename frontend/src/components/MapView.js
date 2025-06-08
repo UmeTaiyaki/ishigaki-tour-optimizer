@@ -5,19 +5,25 @@ import Alert from '@mui/material/Alert';
 
 const MapView = ({
   guests,
+  vehicles,
   activityLocation,
-  optimizedRoute,
+  departureLocation,
+  optimizedRoutes,
   onGuestLocationUpdate,
   onActivityLocationUpdate,
+  onDepartureLocationUpdate,
 }) => {
   const mapRef = useRef(null);
   const [map, setMap] = useState(null);
-  const [markers, setMarkers] = useState([]);
-  const [directionsRenderer, setDirectionsRenderer] = useState(null);
+  const markersRef = useRef([]);
+  const directionsRenderersRef = useRef([]);
   const [mapError, setMapError] = useState(false);
+  const [apiWarning, setApiWarning] = useState(null);
+  const [placesService, setPlacesService] = useState(null);
+  const mapStateRef = useRef({ center: null, zoom: null });
 
+  // Google Maps初期化用のuseEffect
   useEffect(() => {
-    // Google Maps APIキーを環境変数から取得
     const apiKey = process.env.REACT_APP_GOOGLE_MAPS_API_KEY;
     
     if (!apiKey) {
@@ -35,9 +41,8 @@ const MapView = ({
     loader
       .load()
       .then(() => {
-        // 地図を初期化
         const mapInstance = new window.google.maps.Map(mapRef.current, {
-          center: { lat: 24.3454, lng: 124.1572 }, // 石垣島の中心
+          center: { lat: 24.3454, lng: 124.1572 },
           zoom: 12,
           mapTypeId: 'roadmap',
           styles: [
@@ -49,19 +54,42 @@ const MapView = ({
           ],
         });
 
-        // DirectionsRendererを初期化
-        const renderer = new window.google.maps.DirectionsRenderer({
-          map: mapInstance,
-          suppressMarkers: true,
-          polylineOptions: {
-            strokeColor: '#1a73e8',
-            strokeOpacity: 0.8,
-            strokeWeight: 5,
-          },
+        // 複数のDirectionsRendererを初期化（車両数分）
+        const colors = ['#1a73e8', '#34a853', '#ea4335', '#fbbc04', '#673ab7'];
+        
+        for (let i = 0; i < 5; i++) { // 最大5台分
+          const renderer = new window.google.maps.DirectionsRenderer({
+            map: mapInstance,
+            suppressMarkers: true,
+            polylineOptions: {
+              strokeColor: colors[i],
+              strokeOpacity: 0.8,
+              strokeWeight: 5,
+            },
+          });
+          directionsRenderersRef.current.push(renderer);
+        }
+
+        // Places Serviceを初期化
+        const service = new window.google.maps.places.PlacesService(mapInstance);
+
+        // 地図の状態変更を監視
+        mapInstance.addListener('zoom_changed', () => {
+          mapStateRef.current.zoom = mapInstance.getZoom();
         });
 
+        mapInstance.addListener('center_changed', () => {
+          mapStateRef.current.center = mapInstance.getCenter();
+        });
+
+        // 初期状態を保存
+        mapStateRef.current = {
+          center: mapInstance.getCenter(),
+          zoom: mapInstance.getZoom(),
+        };
+
         setMap(mapInstance);
-        setDirectionsRenderer(renderer);
+        setPlacesService(service);
       })
       .catch((error) => {
         console.error('Google Maps読み込みエラー:', error);
@@ -69,15 +97,63 @@ const MapView = ({
       });
   }, []);
 
+  // マーカー更新用のuseEffect
   useEffect(() => {
     if (!map) return;
 
-    // 既存のマーカーをクリア
-    markers.forEach(marker => marker.setMap(null));
-    const newMarkers = [];
+    // 地図の状態を保持
+    if (mapStateRef.current.center && mapStateRef.current.zoom) {
+      map.setCenter(mapStateRef.current.center);
+      map.setZoom(mapStateRef.current.zoom);
+    }
 
-    // ゲストマーカーを作成
+    // 既存のマーカーをクリア
+    markersRef.current.forEach(marker => marker.setMap(null));
+    markersRef.current = [];
+
+    // 出発地点マーカー
+    const departureMarker = new window.google.maps.Marker({
+      position: departureLocation,
+      map: map,
+      title: '出発地点',
+      draggable: true,
+      icon: {
+        url: 'http://maps.google.com/mapfiles/ms/icons/green-dot.png',
+        scaledSize: new window.google.maps.Size(45, 45),
+      },
+    });
+
+    departureMarker.addListener('dragend', (event) => {
+      onDepartureLocationUpdate({
+        lat: event.latLng.lat(),
+        lng: event.latLng.lng(),
+      });
+    });
+
+    const departureInfoWindow = new window.google.maps.InfoWindow({
+      content: '<div><strong>🚗 出発地点</strong></div>',
+    });
+
+    departureMarker.addListener('click', () => {
+      departureInfoWindow.open(map, departureMarker);
+    });
+
+    markersRef.current.push(departureMarker);
+
+    // ゲストマーカーを作成（車両の色で表示）
     guests.forEach((guest, index) => {
+      // ゲストが割り当てられている車両を見つける
+      let vehicleColor = '#1a73e8'; // デフォルト色
+      
+      if (optimizedRoutes && vehicles) {
+        optimizedRoutes.forEach((route, vIndex) => {
+          const guestInRoute = route.route?.find(r => r.name === guest.name);
+          if (guestInRoute && vehicles[vIndex]) {
+            vehicleColor = vehicles[vIndex].color;
+          }
+        });
+      }
+
       const marker = new window.google.maps.Marker({
         position: guest.location,
         map: map,
@@ -88,11 +164,15 @@ const MapView = ({
         title: guest.name,
         draggable: true,
         icon: {
-          url: 'http://maps.google.com/mapfiles/ms/icons/blue-dot.png',
+          path: window.google.maps.SymbolPath.CIRCLE,
+          scale: 20,
+          fillColor: vehicleColor,
+          fillOpacity: 0.8,
+          strokeColor: 'white',
+          strokeWeight: 2,
         },
       });
 
-      // ドラッグ終了時のイベント
       marker.addListener('dragend', (event) => {
         onGuestLocationUpdate(guest.id, {
           lat: event.latLng.lat(),
@@ -100,13 +180,13 @@ const MapView = ({
         });
       });
 
-      // 情報ウィンドウ
       const infoWindow = new window.google.maps.InfoWindow({
         content: `
           <div>
             <strong>${guest.name}</strong><br>
             ${guest.hotel}<br>
-            ${guest.people}名
+            ${guest.people}名<br>
+            ${guest.pickupTime ? `ピックアップ: ${guest.pickupTime}` : ''}
           </div>
         `,
       });
@@ -115,7 +195,7 @@ const MapView = ({
         infoWindow.open(map, marker);
       });
 
-      newMarkers.push(marker);
+      markersRef.current.push(marker);
     });
 
     // アクティビティマーカー
@@ -137,51 +217,97 @@ const MapView = ({
       });
     });
 
-    newMarkers.push(activityMarker);
-    setMarkers(newMarkers);
+    const activityInfoWindow = new window.google.maps.InfoWindow({
+      content: '<div><strong>🏊 アクティビティ地点</strong></div>',
+    });
 
-    // ルートを描画
-    if (optimizedRoute && optimizedRoute.route && directionsRenderer) {
-      drawOptimizedRoute();
-    }
-  }, [map, guests, activityLocation, optimizedRoute, directionsRenderer, markers, onGuestLocationUpdate, onActivityLocationUpdate]);
+    activityMarker.addListener('click', () => {
+      activityInfoWindow.open(map, activityMarker);
+    });
 
-  const drawOptimizedRoute = () => {
-    if (!optimizedRoute || !optimizedRoute.route || !directionsRenderer || !map) return;
+    markersRef.current.push(activityMarker);
+  }, [map, guests, activityLocation, departureLocation, optimizedRoutes, vehicles, onGuestLocationUpdate, onActivityLocationUpdate, onDepartureLocationUpdate]);
 
-    const directionsService = new window.google.maps.DirectionsService();
+  // ルート描画用の別のuseEffect
+  useEffect(() => {
+    if (!map || directionsRenderersRef.current.length === 0 || !optimizedRoutes || optimizedRoutes.length === 0) return;
 
-    // ウェイポイントを作成
-    const waypoints = optimizedRoute.route.map(item => ({
-      location: { lat: item.pickup_lat, lng: item.pickup_lng },
-      stopover: true,
-    }));
+    // すべてのレンダラーをクリア
+    directionsRenderersRef.current.forEach(renderer => renderer.setDirections({ routes: [] }));
 
-    // 最初の地点を起点に設定
-    const origin = waypoints.length > 0 ? waypoints[0].location : activityLocation;
-    const destination = activityLocation;
-
-    // 最初の地点を除外
-    const middleWaypoints = waypoints.slice(1);
-
-    directionsService.route(
-      {
-        origin: origin,
-        destination: destination,
-        waypoints: middleWaypoints,
-        optimizeWaypoints: false,
-        travelMode: window.google.maps.TravelMode.DRIVING,
-        region: 'JP',
-      },
-      (response, status) => {
-        if (status === 'OK') {
-          directionsRenderer.setDirections(response);
-        } else {
-          console.error('ルート計算エラー:', status);
-        }
+    // 各車両のルートを描画
+    optimizedRoutes.forEach((vehicleRoute, index) => {
+      if (index >= directionsRenderersRef.current.length) return;
+      
+      // ルートが空の場合は処理しない
+      if (!vehicleRoute.route || vehicleRoute.route.length === 0) {
+        return;
       }
-    );
-  };
+
+      const directionsService = new window.google.maps.DirectionsService();
+      const renderer = directionsRenderersRef.current[index];
+
+      const waypoints = vehicleRoute.route.map(item => ({
+        location: { lat: item.pickup_lat, lng: item.pickup_lng },
+        stopover: true,
+      }));
+
+      // 出発地点から開始
+      const origin = departureLocation;
+      const destination = activityLocation;
+
+      directionsService.route(
+        {
+          origin: origin,
+          destination: destination,
+          waypoints: waypoints,
+          optimizeWaypoints: false,
+          travelMode: window.google.maps.TravelMode.DRIVING,
+          region: 'JP',
+        },
+        (response, status) => {
+          if (status === 'OK') {
+            renderer.setDirections(response);
+          } else {
+            console.warn(`車両${index + 1}のルート計算エラー:`, status);
+            renderer.setDirections({ routes: [] });
+            
+            if (status === 'REQUEST_DENIED') {
+              console.error('Directions APIが有効化されていません。');
+              setApiWarning('ルート表示にはDirections APIの有効化が必要です');
+            }
+          }
+        }
+      );
+    });
+  }, [map, optimizedRoutes, activityLocation, departureLocation]);
+
+  // Places検索機能を外部に公開
+  useEffect(() => {
+    if (!placesService || !map) return;
+
+    // グローバルに検索関数を公開（GuestListから呼び出し可能）
+    window.searchHotelLocation = (hotelName, callback) => {
+      const request = {
+        query: `${hotelName} 石垣島`,
+        fields: ['name', 'geometry'],
+      };
+
+      placesService.findPlaceFromQuery(request, (results, status) => {
+        if (status === window.google.maps.places.PlacesServiceStatus.OK && results && results[0]) {
+          const location = results[0].geometry.location;
+          callback({
+            lat: location.lat(),
+            lng: location.lng(),
+            name: results[0].name
+          });
+        } else {
+          console.error('場所が見つかりませんでした:', hotelName);
+          callback(null);
+        }
+      });
+    };
+  }, [placesService, map]);
 
   if (mapError) {
     return (
@@ -195,7 +321,18 @@ const MapView = ({
     );
   }
 
-  return <div ref={mapRef} style={{ width: '100%', height: '100%' }} />;
+  return (
+    <>
+      {apiWarning && (
+        <Box sx={{ position: 'absolute', top: 10, left: 10, zIndex: 1000 }}>
+          <Alert severity="info" onClose={() => setApiWarning(null)}>
+            {apiWarning}
+          </Alert>
+        </Box>
+      )}
+      <div ref={mapRef} style={{ width: '100%', height: '100%' }} />
+    </>
+  );
 };
 
 export default MapView;

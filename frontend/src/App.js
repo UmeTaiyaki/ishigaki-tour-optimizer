@@ -10,8 +10,9 @@ import Box from '@mui/material/Box';
 import CircularProgress from '@mui/material/CircularProgress';
 import TourSettings from './components/TourSettings';
 import GuestList from './components/GuestList';
+import VehicleManager from './components/VehicleManager';
 import MapView from './components/MapView';
-import RouteTimeline from './components/RouteTimeline';
+import FinalSchedule from './components/FinalSchedule';
 import PredictionCard from './components/PredictionCard';
 import { optimizeRoute, saveRecord } from './services/api';
 import { format } from 'date-fns';
@@ -42,6 +43,7 @@ function App() {
     date: format(new Date(), 'yyyy-MM-dd'),
     activityType: 'snorkeling',
     activityLocation: { lat: 24.3754, lng: 124.1726 }, // 川平湾
+    departureLocation: { lat: 24.3336, lng: 124.1543 }, // 市街地（出発地点）
     startTime: '10:00',
   });
 
@@ -66,7 +68,17 @@ function App() {
     },
   ]);
 
-  const [optimizedRoute, setOptimizedRoute] = useState(null);
+  const [vehicles, setVehicles] = useState([
+    {
+      id: 1,
+      name: '車両1',
+      capacity: 7,
+      driver: '山田ドライバー',
+      color: '#1a73e8',
+    },
+  ]);
+
+  const [optimizedRoutes, setOptimizedRoutes] = useState([]);
   const [loading, setLoading] = useState(false);
   const [prediction, setPrediction] = useState(null);
 
@@ -76,11 +88,50 @@ function App() {
     weather: { condition: 'sunny', temp: 28, windSpeed: 3.5 },
   });
 
+  // ゲストを車両に振り分ける関数
+  const distributeGuestsToVehicles = (route, vehicles) => {
+    if (!route || route.length === 0) return [];
+    
+    const vehicleRoutes = vehicles.map(vehicle => ({
+      vehicleId: vehicle.id,
+      route: [],
+      total_distance: 0,
+      estimated_duration: '0分',
+      departure_time: '07:00',
+    }));
+
+    let currentVehicleIndex = 0;
+    let currentCapacity = 0;
+
+    route.forEach(guest => {
+      if (currentCapacity + guest.num_people > vehicles[currentVehicleIndex].capacity) {
+        currentVehicleIndex++;
+        currentCapacity = 0;
+        if (currentVehicleIndex >= vehicles.length) {
+          currentVehicleIndex = 0; // 全車両が満員の場合は最初の車両に戻る
+        }
+      }
+
+      vehicleRoutes[currentVehicleIndex].route.push(guest);
+      currentCapacity += guest.num_people;
+    });
+
+    // 各車両の距離と時間を計算（簡易版）
+    vehicleRoutes.forEach(vr => {
+      vr.total_distance = (vr.route.length * 5 + Math.random() * 10).toFixed(1);
+      vr.estimated_duration = `${30 + vr.route.length * 10}分`;
+    });
+
+    return vehicleRoutes.filter(vr => vr.route.length > 0);
+  };
+
   const handleOptimize = useCallback(async () => {
     setLoading(true);
     try {
       const result = await optimizeRoute({
         ...tourData,
+        departure_lat: tourData.departureLocation.lat,
+        departure_lng: tourData.departureLocation.lng,
         guests: guests.map(g => ({
           name: g.name,
           hotel_name: g.hotel,
@@ -90,10 +141,15 @@ function App() {
           preferred_pickup_start: g.preferredTime.start,
           preferred_pickup_end: g.preferredTime.end,
         })),
+        vehicles: vehicles.map(v => ({
+          id: v.id,
+          capacity: v.capacity,
+        })),
       });
 
-      // APIレスポンスの構造を正しく設定
-      setOptimizedRoute(result);
+      // 単一ルートを複数車両用に変換（バックエンドが対応するまでの暫定処理）
+      const vehicleRoutes = distributeGuestsToVehicles(result.route, vehicles);
+      setOptimizedRoutes(vehicleRoutes);
       setPrediction(result.prediction);
 
       // ゲストのピックアップ時間を更新
@@ -122,7 +178,8 @@ function App() {
         estimated_duration: '45分',
       };
       
-      setOptimizedRoute(dummyRoute);
+      const vehicleRoutes = distributeGuestsToVehicles(dummyRoute.route, vehicles);
+      setOptimizedRoutes(vehicleRoutes);
       setPrediction({
         accuracy: 92,
         expected_delays: guests.map(g => ({
@@ -141,15 +198,14 @@ function App() {
     } finally {
       setLoading(false);
     }
-  }, [tourData, guests]);
-
-  // 初回ロード時に最適化を実行
-  useEffect(() => {
-    handleOptimize();
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [tourData, guests, vehicles]);
 
   const handleGuestUpdate = (updatedGuests) => {
     setGuests(updatedGuests);
+  };
+
+  const handleVehicleUpdate = (updatedVehicles) => {
+    setVehicles(updatedVehicles);
   };
 
   const handleLocationUpdate = (id, location) => {
@@ -157,13 +213,14 @@ function App() {
       guest.id === id ? { ...guest, location } : guest
     );
     setGuests(updatedGuests);
-    // 位置が変更されたら再最適化
-    handleOptimize();
   };
 
   const handleActivityLocationUpdate = (location) => {
     setTourData({ ...tourData, activityLocation: location });
-    handleOptimize();
+  };
+
+  const handleDepartureLocationUpdate = (location) => {
+    setTourData({ ...tourData, departureLocation: location });
   };
 
   const handleSaveRecord = async () => {
@@ -172,10 +229,9 @@ function App() {
       tour_date: tourData.date,
       planned_time: `${tourData.date} ${guest.pickupTime}`,
       guest_name: guest.name,
-      // 実際の時間は手動入力または自動取得
       actual_time: `${tourData.date} ${guest.pickupTime}`,
       delay_minutes: 0,
-      distance_km: 10, // 仮の値
+      distance_km: 10,
       weather: environmentalData.weather.condition,
       tide_level: environmentalData.tide.level,
     }));
@@ -221,7 +277,10 @@ function App() {
                   </Box>
                   <Box sx={{ textAlign: 'center' }}>
                     <Typography variant="h5" sx={{ fontWeight: 'bold' }}>
-                      {optimizedRoute ? `${optimizedRoute.total_distance}km` : '-'}
+                      {optimizedRoutes.length > 0 ? 
+                        `${optimizedRoutes.reduce((sum, r) => sum + parseFloat(r.total_distance), 0).toFixed(1)}km` : 
+                        '-'
+                      }
                     </Typography>
                     <Typography variant="caption">総移動距離</Typography>
                   </Box>
@@ -245,6 +304,12 @@ function App() {
               <Paper sx={{ p: 2, mb: 2 }}>
                 <PredictionCard prediction={prediction} />
               </Paper>
+              <Paper sx={{ p: 2, mb: 2 }}>
+                <VehicleManager
+                  vehicles={vehicles}
+                  onUpdate={handleVehicleUpdate}
+                />
+              </Paper>
               <Paper sx={{ p: 2 }}>
                 <GuestList
                   guests={guests}
@@ -258,27 +323,32 @@ function App() {
               <Paper sx={{ p: 0, height: '600px', position: 'relative' }}>
                 <MapView
                   guests={guests}
+                  vehicles={vehicles}
                   activityLocation={tourData.activityLocation}
-                  optimizedRoute={optimizedRoute}
+                  departureLocation={tourData.departureLocation}
+                  optimizedRoutes={optimizedRoutes}
                   onGuestLocationUpdate={handleLocationUpdate}
                   onActivityLocationUpdate={handleActivityLocationUpdate}
+                  onDepartureLocationUpdate={handleDepartureLocationUpdate}
                 />
                 {loading && (
                   <Box
                     sx={{
                       position: 'absolute',
-                      top: 0,
-                      left: 0,
-                      right: 0,
-                      bottom: 0,
+                      bottom: 20,
+                      right: 20,
+                      bgcolor: 'rgba(0, 0, 0, 0.7)',
+                      color: 'white',
+                      p: 2,
+                      borderRadius: 2,
                       display: 'flex',
                       alignItems: 'center',
-                      justifyContent: 'center',
-                      bgcolor: 'rgba(255, 255, 255, 0.9)',
+                      gap: 1,
                       zIndex: 1000,
                     }}
                   >
-                    <CircularProgress />
+                    <CircularProgress size={20} color="inherit" />
+                    <Typography variant="body2">ルート計算中...</Typography>
                   </Box>
                 )}
               </Paper>
@@ -289,34 +359,33 @@ function App() {
                   fullWidth
                   onClick={handleOptimize}
                   disabled={loading}
-                  startIcon={loading ? <CircularProgress size={20} /> : null}
+                  startIcon={loading ? <CircularProgress size={20} color="inherit" /> : null}
                 >
-                  ⚡ ルート最適化
+                  {loading ? 'ルート計算中...' : '🗺️ ルート最適化'}
                 </Button>
               </Box>
             </Grid>
 
-            {/* 右サイドパネル */}
+            {/* 右サイドパネル: 最終スケジュール */}
             <Grid item xs={12} md={3}>
-              <Paper sx={{ p: 2, mb: 2 }}>
-                <RouteTimeline
-                  route={optimizedRoute}
-                  activityTime={tourData.startTime}
+              <Paper sx={{ p: 2, height: '100%', overflow: 'auto' }}>
+                <FinalSchedule
+                  vehicles={vehicles}
+                  optimizedRoutes={optimizedRoutes}
+                  tourData={tourData}
                 />
+                <Box sx={{ mt: 2 }}>
+                  <Button
+                    variant="contained"
+                    color="secondary"
+                    fullWidth
+                    onClick={handleSaveRecord}
+                    disabled={optimizedRoutes.length === 0}
+                  >
+                    💾 送迎計画を保存
+                  </Button>
+                </Box>
               </Paper>
-              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-                <Button
-                  variant="contained"
-                  color="secondary"
-                  fullWidth
-                  onClick={handleSaveRecord}
-                >
-                  💾 計画を保存
-                </Button>
-                <Button variant="outlined" fullWidth>
-                  📊 実績を記録
-                </Button>
-              </Box>
             </Grid>
           </Grid>
         </Container>
