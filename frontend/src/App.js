@@ -16,7 +16,6 @@ import VehicleManager from './components/VehicleManager';
 import MapView from './components/MapView';
 import FinalSchedule from './components/FinalSchedule';
 import PredictionCard from './components/PredictionCard';
-// import IshigakiDashboard from './components/IshigakiDashboard';
 import { 
   optimizeIshigakiTour, 
   saveIshigakiRecord, 
@@ -57,72 +56,35 @@ function App() {
   const [tourData, setTourData] = useState({
     date: format(new Date(), 'yyyy-MM-dd'),
     activityType: 'snorkeling',
-    activityLocation: { lat: 24.4219, lng: 124.1542 }, // 川平湾
-    departureLocation: { lat: 24.3380, lng: 124.1572 }, // 石垣港
+    activityLocation: { lat: 24.4219, lng: 124.1542, name: '川平湾' },  // デフォルトのロケーションを設定
     startTime: '10:00',
-    weatherPriority: true,
-    tidePriority: true
+    departureLocation: { lat: 24.3336, lng: 124.1543, name: '石垣島出発地点' }
   });
 
-  // ゲスト管理
-  const [guests, setGuests] = useState([
-    {
-      id: 1,
-      name: '田中家',
-      hotel: 'ANAインターコンチネンタル石垣リゾート',
-      location: { lat: 24.3892, lng: 124.1256 },
-      people: 4,
-      preferredTime: { start: '09:00', end: '09:30' },
-      pickupTime: null,
-      guestType: 'family',
-      specialNeeds: null
-    },
-    {
-      id: 2,
-      name: '鈴木カップル',
-      hotel: 'フサキビーチリゾート',
-      location: { lat: 24.3889, lng: 124.1253 },
-      people: 2,
-      preferredTime: { start: '09:15', end: '09:45' },
-      pickupTime: null,
-      guestType: 'couple',
-      specialNeeds: null
-    }
-  ]);
-
-  // 車両管理（石垣島仕様）
-  const vehicleColors = ['#1a73e8', '#34a853', '#ea4335', '#fbbc04', '#673ab7', '#ff6d00', '#00acc1', '#ab47bc'];
+  // 石垣島モードのゲスト情報
+  const [guests, setGuests] = useState([]);
+  
+  // 複数車両対応
   const [vehicles, setVehicles] = useState([
     {
-      id: 'van_01',
-      name: 'ハイエース号',
-      capacity: 10,
-      driver: '石垣太郎',
-      color: vehicleColors[0],
-      vehicleType: 'mini_van',
-      equipment: ['シュノーケル用具', 'タオル', 'ドリンク'],
-      speedFactor: 1.0
-    },
-    {
-      id: 'van_02',
-      name: 'セレナ号',
+      id: 'vehicle_001',
+      name: '車両1',
       capacity: 8,
-      driver: '島袋花子',
-      color: vehicleColors[1],
+      driver: '田中ドライバー',
       vehicleType: 'mini_van',
-      equipment: ['シュノーケル用具', 'パラソル'],
-      speedFactor: 1.1
+      color: '#1a73e8'
     }
   ]);
 
-  // 最適化結果
+  // 石垣島最適化結果
   const [optimizedRoutes, setOptimizedRoutes] = useState([]);
-  const [loading, setLoading] = useState(false);
   const [prediction, setPrediction] = useState(null);
+  const [loading, setLoading] = useState(false);
 
   // 石垣島環境データ
   const [environmentalData, setEnvironmentalData] = useState({
-    location: "石垣島",
+    date: format(new Date(), 'yyyy-MM-dd'),
+    location: '石垣島',
     weather: {
       condition: 'sunny',
       temperature: 26,
@@ -189,6 +151,7 @@ function App() {
       try {
         const batchData = await getBatchData(tourData.date);
         
+        // データが取得できた場合のみ更新
         if (batchData.environmental) {
           setEnvironmentalData(batchData.environmental);
         }
@@ -201,18 +164,24 @@ function App() {
           setSystemStatus(batchData.system);
         }
 
+        // エラーがあってもアプリは継続動作
         if (batchData.errors.length > 0) {
           console.warn('一部データの読み込みに失敗:', batchData.errors);
+          // エラーが全てのデータ取得で発生した場合のみ通知
+          if (batchData.errors.length === 3) {
+            addNotification('オフラインモードで動作中', 'warning');
+          }
         }
 
       } catch (error) {
         console.error('アプリ初期化エラー:', error);
-        setErrors([handleApiError(error, 'アプリ初期化')]);
+        // エラーが発生してもアプリは継続動作
+        addNotification('初期化中にエラーが発生しましたが、継続して使用できます', 'warning');
       }
     };
 
     initializeApp();
-  }, [tourData.date]);
+  }, [tourData.date, addNotification]);
 
   // フォールバック用の簡易ルート生成
   const generateFallbackRoutes = useCallback(() => {
@@ -225,14 +194,16 @@ function App() {
         vehicle_id: vehicle.id,
         vehicle_name: vehicle.name,
         capacity: vehicle.capacity,
-        route: assignedGuests.map(guest => ({
+        route: assignedGuests.map((guest, gIndex) => ({
           name: guest.name,
           hotel_name: guest.hotel,
           pickup_lat: guest.location.lat,
           pickup_lng: guest.location.lng,
           num_people: guest.people,
-          pickup_time: `0${8 + index}:${(index * 15) % 60}`,
-          time_compliance: 'acceptable'
+          pickup_time: `0${8 + Math.floor(gIndex / 2)}:${(gIndex % 2) * 30}0`,
+          time_compliance: 'acceptable',
+          preferred_pickup_start: guest.preferredTime.start,
+          preferred_pickup_end: guest.preferredTime.end
         })),
         total_distance: 15 + Math.random() * 10,
         estimated_duration: `${35 + index * 10}分`,
@@ -250,9 +221,23 @@ function App() {
     setErrors([]);
     
     try {
-      // 最新の環境データを取得
-      const currentEnvData = await getIshigakiEnvironmentalData(tourData.date);
-      setEnvironmentalData(currentEnvData);
+      // アクティビティロケーションの検証
+      if (!tourData.activityLocation) {
+        throw new Error('アクティビティの場所を設定してください');
+      }
+
+      // ゲストの検証
+      if (guests.length === 0) {
+        throw new Error('ゲストを追加してください');
+      }
+
+      // 最新の環境データを取得（エラーが発生してもデフォルト値を使用）
+      try {
+        const currentEnvData = await getIshigakiEnvironmentalData(tourData.date);
+        setEnvironmentalData(currentEnvData);
+      } catch (envError) {
+        console.warn('環境データ取得エラー:', envError);
+      }
 
       // 石垣島専用最適化API呼び出し
       const optimizationData = {
@@ -265,67 +250,60 @@ function App() {
 
       if (result.success) {
         // 複数車両の結果を処理
-        const vehicleRoutes = result.optimization_result.vehicle_routes || [];
+        const vehicleRoutes = result.optimization_result?.vehicle_routes || [];
         setOptimizedRoutes(vehicleRoutes);
         
         // 予測結果を設定
-        setPrediction(result.prediction);
-
-        // ゲストのピックアップ時間を更新
-        const updatedGuests = guests.map(guest => {
-          for (const vehicleRoute of vehicleRoutes) {
-            const routeGuest = vehicleRoute.route.find(r => r.name === guest.name);
-            if (routeGuest) {
-              return {
-                ...guest,
-                pickupTime: routeGuest.pickup_time,
-                assignedVehicle: vehicleRoute.vehicle_id
-              };
-            }
-          }
-          return guest;
-        });
-        setGuests(updatedGuests);
-
-        // 最適化成功の通知
-        addNotification('ルート最適化が完了しました！', 'success');
-
-        // 石垣島特有の推奨事項があれば表示
-        if (result.ishigaki_special_notes && result.ishigaki_special_notes.length > 0) {
-          result.ishigaki_special_notes.forEach(note => {
-            addNotification(note, 'info');
-          });
+        if (result.prediction) {
+          setPrediction(result.prediction);
         }
 
+        addNotification('ルート最適化が完了しました', 'success');
+        
+        // 統計情報の更新
+        if (result.summary) {
+          setStatistics(prev => ({
+            ...prev,
+            ...result.summary
+          }));
+        }
       } else {
-        throw new Error(result.message || '最適化に失敗しました');
+        throw new Error('最適化に失敗しました');
       }
-
-    } catch (error) {
-      const errorMessage = handleApiError(error, 'ルート最適化');
-      setErrors([errorMessage]);
-      addNotification(errorMessage, 'error');
       
-      // フォールバック：簡易的な結果を生成
-      generateFallbackRoutes();
+    } catch (error) {
+      console.error('最適化エラー:', error);
+      setErrors([error.message]);
+      
+      // APIエラーの場合はフォールバックルートを生成
+      if (guests.length > 0 && vehicles.length > 0) {
+        generateFallbackRoutes();
+      }
     } finally {
       setLoading(false);
     }
   }, [tourData, guests, vehicles, addNotification, generateFallbackRoutes]);
 
-  // コンポーネント更新ハンドラー
-  const handleGuestUpdate = useCallback((updatedGuests) => {
-    setGuests(updatedGuests);
+  // ツアーデータ更新
+  const handleTourDataUpdate = useCallback((newData) => {
+    setTourData(newData);
   }, []);
 
-  const handleVehicleUpdate = useCallback((updatedVehicles) => {
-    setVehicles(updatedVehicles);
+  // ゲスト更新（石垣島特化）
+  const handleGuestsUpdate = useCallback((newGuests) => {
+    setGuests(newGuests);
   }, []);
 
-  const handleLocationUpdate = useCallback((id, location) => {
+  // 車両更新
+  const handleVehiclesUpdate = useCallback((newVehicles) => {
+    setVehicles(newVehicles);
+  }, []);
+
+  // ゲストのホテル位置更新
+  const handleGuestLocationUpdate = useCallback((guestIndex, location) => {
     setGuests(prevGuests => 
-      prevGuests.map(guest =>
-        guest.id === id ? { ...guest, location } : guest
+      prevGuests.map((guest, index) => 
+        index === guestIndex ? { ...guest, location } : guest
       )
     );
   }, []);
@@ -392,12 +370,9 @@ function App() {
                   <Box sx={{ textAlign: 'center' }}>
                     <Chip 
                       label={systemStatus.status === 'online' ? 'オンライン' : 'オフライン'}
-                      color={systemStatus.status === 'online' ? 'success' : 'error'}
+                      color={systemStatus.status === 'online' ? 'success' : 'default'}
                       size="small"
                     />
-                    <Typography variant="caption" sx={{ display: 'block' }}>
-                      {systemStatus.version}
-                    </Typography>
                   </Box>
                 </Box>
               </Grid>
@@ -405,182 +380,125 @@ function App() {
           </Container>
         </Box>
 
-        {/* 通知エリア */}
-        {notifications.length > 0 && (
-          <Box sx={{ bgcolor: 'background.paper', borderBottom: 1, borderColor: 'divider' }}>
-            <Container maxWidth="xl" sx={{ py: 1 }}>
-              {notifications.map((notification) => (
-                <Alert
-                  key={notification.id}
-                  severity={notification.severity}
-                  onClose={() => dismissNotification(notification.id)}
-                  sx={{ mb: 1 }}
-                >
-                  {notification.message}
-                </Alert>
-              ))}
-            </Container>
-          </Box>
-        )}
-
-        {/* エラー表示 */}
-        {errors.length > 0 && (
-          <Box sx={{ bgcolor: 'background.paper', borderBottom: 1, borderColor: 'divider' }}>
-            <Container maxWidth="xl" sx={{ py: 1 }}>
+        <Container maxWidth="xl" sx={{ mt: 3, mb: 3 }}>
+          {/* エラー表示 */}
+          {errors.length > 0 && (
+            <Box sx={{ mb: 2 }}>
               {errors.map((error, index) => (
-                <Alert
-                  key={index}
-                  severity="error"
-                  onClose={() => dismissError(index)}
+                <Alert 
+                  key={index} 
+                  severity="error" 
                   sx={{ mb: 1 }}
+                  onClose={() => dismissError(index)}
                 >
                   {error}
                 </Alert>
               ))}
-            </Container>
-          </Box>
-        )}
+            </Box>
+          )}
 
-        <Container maxWidth="xl" sx={{ py: 3 }}>
+          {/* 通知表示 */}
+          {notifications.length > 0 && (
+            <Box sx={{ position: 'fixed', top: 100, right: 20, zIndex: 1000 }}>
+              {notifications.map(notification => (
+                <Alert
+                  key={notification.id}
+                  severity={notification.severity}
+                  sx={{ mb: 1, minWidth: 300 }}
+                  onClose={() => dismissNotification(notification.id)}
+                >
+                  {notification.message}
+                </Alert>
+              ))}
+            </Box>
+          )}
+
           <Grid container spacing={3}>
-            {/* 左サイドパネル */}
-            <Grid item xs={12} md={3}>
-              <Paper sx={{ p: 2, mb: 2 }}>
-                <TourSettings
-                  tourData={tourData}
-                  onUpdate={setTourData}
-                  environmentalData={environmentalData}
-                />
-              </Paper>
-              
-              <Paper sx={{ p: 2, mb: 2 }}>
-                <GuestList
-                  guests={guests}
-                  onUpdate={handleGuestUpdate}
-                  ishigakiMode={true}
-                />
-              </Paper>
-              
-              <Paper sx={{ p: 2 }}>
-                <VehicleManager
-                  vehicles={vehicles}
-                  onUpdate={handleVehicleUpdate}
-                  ishigakiMode={true}
-                />
-              </Paper>
-            </Grid>
+            {/* 左側パネル */}
+            <Grid item xs={12} lg={4}>
+              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                {/* ツアー設定 */}
+                <Paper sx={{ p: 2 }}>
+                  <TourSettings 
+                    tourData={tourData} 
+                    onUpdate={handleTourDataUpdate}
+                    environmentalData={environmentalData}
+                  />
+                </Paper>
 
-            {/* 中央マップエリア */}
-            <Grid item xs={12} md={6}>
-              <Paper sx={{ p: 0, height: '70vh', position: 'relative' }}>
-                <MapView
-                  guests={guests}
-                  vehicles={vehicles}
-                  activityLocation={tourData.activityLocation}
-                  departureLocation={tourData.departureLocation}
-                  optimizedRoutes={optimizedRoutes}
-                  onGuestLocationUpdate={handleLocationUpdate}
-                  onActivityLocationUpdate={handleActivityLocationUpdate}
-                  onDepartureLocationUpdate={handleDepartureLocationUpdate}
-                  ishigakiMode={true}
-                />
-                {loading && (
-                  <Box sx={{
-                    position: 'absolute',
-                    top: '50%',
-                    left: '50%',
-                    transform: 'translate(-50%, -50%)',
-                    bgcolor: 'rgba(255,255,255,0.95)',
-                    p: 4,
-                    borderRadius: 2,
-                    boxShadow: 3,
-                    textAlign: 'center'
-                  }}>
-                    <CircularProgress size={60} />
-                    <Typography sx={{ mt: 2, fontWeight: 'bold' }}>
-                      石垣島専用AI最適化実行中...
-                    </Typography>
-                    <Typography variant="body2" color="text.secondary">
-                      複数車両・環境要因・潮位を考慮して計算中
-                    </Typography>
-                  </Box>
-                )}
-              </Paper>
-              
-              <Box sx={{ mt: 2, display: 'flex', justifyContent: 'center', gap: 2 }}>
+                {/* 車両管理 */}
+                <Paper sx={{ p: 2 }}>
+                  <VehicleManager
+                    vehicles={vehicles}
+                    onUpdate={handleVehiclesUpdate}
+                    ishigakiMode={true}
+                  />
+                </Paper>
+
+                {/* ゲスト管理 */}
+                <Paper sx={{ p: 2 }}>
+                  <GuestList
+                    guests={guests}
+                    onUpdate={handleGuestsUpdate}
+                    onLocationUpdate={handleGuestLocationUpdate}
+                    ishigakiMode={true}
+                  />
+                </Paper>
+
+                {/* 最適化ボタン */}
                 <Button
                   variant="contained"
                   size="large"
                   onClick={handleOptimize}
-                  disabled={loading || guests.length === 0}
-                  sx={{ px: 4, py: 1.5 }}
+                  disabled={loading || guests.length === 0 || !tourData.activityLocation}
                   startIcon={loading ? <CircularProgress size={20} /> : null}
+                  fullWidth
+                  sx={{ py: 1.5 }}
                 >
-                  {loading ? '最適化中...' : '🚀 石垣島専用最適化実行'}
+                  {loading ? '最適化中...' : '🚀 石垣島モード最適化'}
                 </Button>
-                
-                {optimizedRoutes.length > 0 && (
-                  <Button
-                    variant="outlined"
-                    size="large"
-                    onClick={() => {
-                      // 結果をクリア
-                      setOptimizedRoutes([]);
-                      setPrediction(null);
-                      addNotification('結果をクリアしました', 'info');
-                    }}
-                    sx={{ px: 3, py: 1.5 }}
-                  >
-                    結果クリア
-                  </Button>
-                )}
               </Box>
             </Grid>
 
-            {/* 右サイドパネル */}
-            <Grid item xs={12} md={3}>
-              {prediction && (
-                <Paper sx={{ p: 2, mb: 2 }}>
-                  <PredictionCard
-                    prediction={prediction}
-                    environmentalData={environmentalData}
-                    ishigakiMode={true}
-                  />
-                </Paper>
-              )}
-              
-              {optimizedRoutes.length > 0 ? (
-                <Paper sx={{ p: 2 }}>
-                  <FinalSchedule
-                    vehicles={vehicles}
-                    optimizedRoutes={optimizedRoutes}
-                    tourData={tourData}
-                    environmentalData={environmentalData}
-                    onSaveRecord={saveIshigakiRecord}
-                    ishigakiMode={true}
-                  />
-                </Paper>
-              ) : (
-                <Paper sx={{ p: 3, textAlign: 'center' }}>
-                  <Typography variant="h6" color="text.secondary" gutterBottom>
-                    石垣島専用最適化
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary">
-                    複数車両での最適ルートを計算します
-                  </Typography>
-                  <Box sx={{ mt: 2 }}>
-                    <Typography variant="caption" display="block">
-                      🌊 潮位・天候・観光シーズンを考慮
-                    </Typography>
-                    <Typography variant="caption" display="block">
-                      🚗 車両容量・効率を最適化
-                    </Typography>
-                    <Typography variant="caption" display="block">
-                      🤖 AI学習による遅延予測
-                    </Typography>
-                  </Box>
-                </Paper>
-              )}
+            {/* 中央：地図 */}
+            <Grid item xs={12} lg={4}>
+              <Paper sx={{ height: '85vh', position: 'sticky', top: 20 }}>
+                <MapView
+                  guests={guests}
+                  activityLocation={tourData.activityLocation}
+                  departureLocation={tourData.departureLocation}
+                  onActivityLocationUpdate={handleActivityLocationUpdate}
+                  onDepartureLocationUpdate={handleDepartureLocationUpdate}
+                  optimizedRoutes={optimizedRoutes}
+                  vehicles={vehicles}
+                  ishigakiMode={true}
+                />
+              </Paper>
+            </Grid>
+
+            {/* 右側：結果表示 */}
+            <Grid item xs={12} lg={4}>
+              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                {/* AI予測カード */}
+                {prediction && (
+                  <Paper sx={{ p: 2 }}>
+                    <PredictionCard prediction={prediction} />
+                  </Paper>
+                )}
+
+                {/* 最終スケジュール */}
+                {optimizedRoutes.length > 0 && (
+                  <Paper sx={{ p: 2 }}>
+                    <FinalSchedule
+                      vehicles={vehicles}
+                      optimizedRoutes={optimizedRoutes}
+                      tourData={tourData}
+                      onUpdateTourData={handleTourDataUpdate}
+                      environmentalData={environmentalData}
+                    />
+                  </Paper>
+                )}
+              </Box>
             </Grid>
           </Grid>
         </Container>
