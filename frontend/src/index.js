@@ -9,10 +9,3 @@ root.render(
     <App />
   </React.StrictMode>
 );
-
-// サービスワーカーの登録を無効化
-if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.ready.then(registration => {
-    registration.unregister();
-  });
-}

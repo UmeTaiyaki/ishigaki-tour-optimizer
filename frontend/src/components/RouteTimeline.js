@@ -13,10 +13,9 @@ import TimelineContent from '@mui/lab/TimelineContent';
 import TimelineDot from '@mui/lab/TimelineDot';
 import TimelineOppositeContent from '@mui/lab/TimelineOppositeContent';
 import DirectionsCarIcon from '@mui/icons-material/DirectionsCar';
-import PlaceIcon from '@mui/icons-material/Place';
 import WavesIcon from '@mui/icons-material/Waves';
 
-const RouteTimeline = ({ route, activityTime }) => {
+const RouteTimeline = ({ route, activityTime, departureTime }) => {
   if (!route || !route.route || route.route.length === 0) {
     return (
       <Box sx={{ textAlign: 'center', py: 4 }}>
@@ -55,23 +54,33 @@ const RouteTimeline = ({ route, activityTime }) => {
 
   return (
     <Box>
-      <Typography variant="h6" gutterBottom>
-        🚗 最適化された送迎計画
-      </Typography>
-
-      <Box sx={{ mb: 2 }}>
-        <Chip 
-          label="最適化完了" 
-          color="success" 
-          size="small" 
-          sx={{ mr: 1 }}
-        />
-        <Typography variant="caption" color="text.secondary">
-          総距離: {route.total_distance}km
-        </Typography>
-      </Box>
-
       <Timeline position="right" sx={{ p: 0, m: 0 }}>
+        {/* 出発地点 */}
+        <TimelineItem>
+          <TimelineOppositeContent sx={{ flex: 0.3, pr: 2 }}>
+            <Typography variant="body2" fontWeight="bold">
+              {departureTime || route.departure_time || '07:00'}
+            </Typography>
+          </TimelineOppositeContent>
+          <TimelineSeparator>
+            <TimelineDot color="success">
+              <DirectionsCarIcon fontSize="small" />
+            </TimelineDot>
+            <TimelineConnector />
+          </TimelineSeparator>
+          <TimelineContent sx={{ pb: 3 }}>
+            <Paper elevation={0} sx={{ p: 1.5, bgcolor: '#e8f5e9' }}>
+              <Typography variant="subtitle2" fontWeight="bold">
+                出発地点
+              </Typography>
+              <Typography variant="caption" color="text.secondary">
+                送迎開始
+              </Typography>
+            </Paper>
+          </TimelineContent>
+        </TimelineItem>
+
+        {/* 各ゲストのピックアップ */}
         {route.route.map((item, index) => (
           <TimelineItem key={index}>
             <TimelineOppositeContent sx={{ flex: 0.3, pr: 2 }}>

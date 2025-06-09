@@ -55,14 +55,22 @@ const MapView = ({
         });
 
         // 複数のDirectionsRendererを初期化（車両数分）
-        const colors = ['#1a73e8', '#34a853', '#ea4335', '#fbbc04', '#673ab7'];
+        // 車両の色に合わせて8台分のレンダラーを作成
+        const vehicleColors = ['#1a73e8', '#34a853', '#ea4335', '#fbbc04', '#673ab7', '#ff6d00', '#00acc1', '#ab47bc'];
         
-        for (let i = 0; i < 5; i++) { // 最大5台分
+        // 既存のレンダラーをクリア
+        directionsRenderersRef.current.forEach(renderer => {
+          renderer.setMap(null);
+        });
+        directionsRenderersRef.current = [];
+
+        // 8台分のDirectionsRendererを作成
+        for (let i = 0; i < 8; i++) {
           const renderer = new window.google.maps.DirectionsRenderer({
             map: mapInstance,
             suppressMarkers: true,
             polylineOptions: {
-              strokeColor: colors[i],
+              strokeColor: vehicleColors[i],
               strokeOpacity: 0.8,
               strokeWeight: 5,
             },
@@ -144,12 +152,14 @@ const MapView = ({
     guests.forEach((guest, index) => {
       // ゲストが割り当てられている車両を見つける
       let vehicleColor = '#1a73e8'; // デフォルト色
+      let vehicleIndex = -1;
       
       if (optimizedRoutes && vehicles) {
         optimizedRoutes.forEach((route, vIndex) => {
           const guestInRoute = route.route?.find(r => r.name === guest.name);
           if (guestInRoute && vehicles[vIndex]) {
             vehicleColor = vehicles[vIndex].color;
+            vehicleIndex = vIndex;
           }
         });
       }
@@ -187,6 +197,7 @@ const MapView = ({
             ${guest.hotel}<br>
             ${guest.people}名<br>
             ${guest.pickupTime ? `ピックアップ: ${guest.pickupTime}` : ''}
+            ${vehicleIndex >= 0 ? `<br>車両: ${vehicles[vehicleIndex].name}` : ''}
           </div>
         `,
       });
@@ -247,6 +258,17 @@ const MapView = ({
       const directionsService = new window.google.maps.DirectionsService();
       const renderer = directionsRenderersRef.current[index];
 
+      // 車両の色を設定（vehiclesが存在する場合）
+      if (vehicles && vehicles[index] && vehicles[index].color) {
+        renderer.setOptions({
+          polylineOptions: {
+            strokeColor: vehicles[index].color,
+            strokeOpacity: 0.8,
+            strokeWeight: 5,
+          },
+        });
+      }
+
       const waypoints = vehicleRoute.route.map(item => ({
         location: { lat: item.pickup_lat, lng: item.pickup_lng },
         stopover: true,
@@ -280,7 +302,7 @@ const MapView = ({
         }
       );
     });
-  }, [map, optimizedRoutes, activityLocation, departureLocation]);
+  }, [map, optimizedRoutes, activityLocation, departureLocation, vehicles]);
 
   // Places検索機能を外部に公開
   useEffect(() => {
