@@ -1,10 +1,11 @@
-// src/components/RouteOptimizer.js - 簡易版
-
-import React, { useState } from 'react';
+// RouteOptimizer.js - ルート最適化コンポーネント（エラー修正版）
+import React, { useState, useEffect } from 'react';
 import {
   Box, Card, CardContent, Typography, Grid, Button,
   Alert, CircularProgress, Divider, Chip, Paper,
-  List, ListItem, ListItemText, ListItemIcon
+  List, ListItem, ListItemText, ListItemIcon,
+  Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
+  Accordion, AccordionSummary, AccordionDetails, LinearProgress
 } from '@mui/material';
 import {
   Route as RouteIcon,
@@ -15,7 +16,10 @@ import {
   Speed as SpeedIcon,
   TrendingUp as TrendingUpIcon,
   Warning as WarningIcon,
-  CheckCircle as CheckCircleIcon
+  CheckCircle as CheckCircleIcon,
+  ExpandMore as ExpandMoreIcon,
+  Hotel as HotelIcon,
+  Navigation as NavigationIcon
 } from '@mui/icons-material';
 
 const RouteOptimizer = ({ 
@@ -32,19 +36,43 @@ const RouteOptimizer = ({
     prioritizeEfficiency: true,
     considerWeather: true
   });
+  const [expandedRoute, setExpandedRoute] = useState(false);
+
+  // 安全な配列操作のためのヘルパー関数
+  const safeReduce = (array, reducer, initialValue) => {
+    if (!Array.isArray(array) || array.length === 0) {
+      return initialValue;
+    }
+    return array.reduce(reducer, initialValue);
+  };
+
+  const safeFilter = (array, predicate) => {
+    if (!Array.isArray(array)) {
+      return [];
+    }
+    return array.filter(predicate);
+  };
+
+  const safeMap = (array, mapper) => {
+    if (!Array.isArray(array)) {
+      return [];
+    }
+    return array.map(mapper);
+  };
+
+  // 統計計算（安全版）
+  const totalGuests = safeReduce(guests, (sum, guest) => sum + (guest?.people || 0), 0);
+  const totalCapacity = safeReduce(vehicles, (sum, vehicle) => sum + (vehicle?.capacity || 0), 0);
+  const availableVehicles = safeFilter(vehicles, v => v?.status === 'available' || !v?.status);
+
+  const canOptimize = guests.length > 0 && availableVehicles.length > 0;
+  const hasResults = Array.isArray(optimizedRoutes) && optimizedRoutes.length > 0;
 
   const handleOptimize = () => {
-    if (onOptimize) {
+    if (onOptimize && canOptimize) {
       onOptimize();
     }
   };
-
-  const totalGuests = guests.reduce((sum, guest) => sum + guest.people, 0);
-  const totalCapacity = vehicles.reduce((sum, vehicle) => sum + vehicle.capacity, 0);
-  const availableVehicles = vehicles.filter(v => v.status === 'available');
-
-  const canOptimize = guests.length > 0 && availableVehicles.length > 0;
-  const hasResults = optimizedRoutes.length > 0;
 
   const getOptimizationStatusColor = () => {
     if (totalGuests > totalCapacity) return 'error';
@@ -63,6 +91,136 @@ const RouteOptimizer = ({
       return '利用可能な車両がありません';
     }
     return '最適化準備完了';
+  };
+
+  const getStatusIcon = () => {
+    const color = getOptimizationStatusColor();
+    if (color === 'success') return <CheckCircleIcon />;
+    if (color === 'error') return <WarningIcon />;
+    return <WarningIcon />;
+  };
+
+  // ルート詳細の表示
+  const renderRouteDetails = (route, index) => {
+    if (!route || typeof route !== 'object') {
+      return null;
+    }
+
+    const pickupDetails = route.pickup_details || [];
+    const vehicle = route.vehicle || {};
+    
+    return (
+      <Accordion 
+        key={route.route_id || index}
+        expanded={expandedRoute === index}
+        onChange={() => setExpandedRoute(expandedRoute === index ? false : index)}
+      >
+        <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+          <Box sx={{ display: 'flex', alignItems: 'center', width: '100%' }}>
+            <CarIcon sx={{ mr: 1, color: 'primary.main' }} />
+            <Box sx={{ flexGrow: 1 }}>
+              <Typography variant="subtitle1">
+                {vehicle.name || `車両${index + 1}`} ({vehicle.driver_name || 'ドライバー未設定'})
+              </Typography>
+              <Typography variant="caption" color="textSecondary">
+                {pickupDetails.length}箇所 • {route.total_distance || 0}km • {route.total_people || 0}名
+              </Typography>
+            </Box>
+            <Chip 
+              label={`効率: ${route.efficiency_score || 0}%`}
+              color={route.efficiency_score > 80 ? 'success' : route.efficiency_score > 60 ? 'warning' : 'error'}
+              size="small"
+            />
+          </Box>
+        </AccordionSummary>
+        
+        <AccordionDetails>
+          <Box sx={{ width: '100%' }}>
+            {/* 車両情報 */}
+            <Card variant="outlined" sx={{ mb: 2 }}>
+              <CardContent sx={{ pb: 2 }}>
+                <Typography variant="subtitle2" gutterBottom>
+                  車両情報
+                </Typography>
+                <Grid container spacing={2}>
+                  <Grid item xs={6}>
+                    <Typography variant="body2">
+                      <strong>車両:</strong> {vehicle.name || 'N/A'}
+                    </Typography>
+                  </Grid>
+                  <Grid item xs={6}>
+                    <Typography variant="body2">
+                      <strong>ドライバー:</strong> {vehicle.driver_name || 'N/A'}
+                    </Typography>
+                  </Grid>
+                  <Grid item xs={6}>
+                    <Typography variant="body2">
+                      <strong>定員:</strong> {vehicle.capacity || 0}名
+                    </Typography>
+                  </Grid>
+                  <Grid item xs={6}>
+                    <Typography variant="body2">
+                      <strong>乗車人数:</strong> {route.total_people || 0}名
+                    </Typography>
+                  </Grid>
+                </Grid>
+              </CardContent>
+            </Card>
+
+            {/* ピックアップ詳細 */}
+            <Typography variant="subtitle2" gutterBottom>
+              ピックアップ詳細
+            </Typography>
+            <TableContainer component={Paper} variant="outlined">
+              <Table size="small">
+                <TableHead>
+                  <TableRow>
+                    <TableCell>順序</TableCell>
+                    <TableCell>ゲスト</TableCell>
+                    <TableCell>ホテル</TableCell>
+                    <TableCell>人数</TableCell>
+                    <TableCell>時刻</TableCell>
+                    <TableCell>ステータス</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {safeMap(pickupDetails, (pickup, pickupIndex) => (
+                    <TableRow key={pickupIndex}>
+                      <TableCell>{pickup.order || pickupIndex + 1}</TableCell>
+                      <TableCell>{pickup.guest_name || 'N/A'}</TableCell>
+                      <TableCell>{pickup.hotel_name || 'N/A'}</TableCell>
+                      <TableCell>{pickup.people_count || 0}名</TableCell>
+                      <TableCell>{pickup.pickup_time || 'N/A'}</TableCell>
+                      <TableCell>
+                        <Chip
+                          label={pickup.status || 'unknown'}
+                          color={
+                            pickup.status === 'optimal' ? 'success' :
+                            pickup.status === 'early' ? 'warning' :
+                            pickup.status === 'late' ? 'error' : 'default'
+                          }
+                          size="small"
+                        />
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </TableContainer>
+
+            {/* ルート統計 */}
+            <Box sx={{ mt: 2, display: 'flex', gap: 2, flexWrap: 'wrap' }}>
+              <Chip icon={<NavigationIcon />} label={`${route.total_distance || 0}km`} variant="outlined" />
+              <Chip icon={<TimeIcon />} label={`${route.total_time || 0}分`} variant="outlined" />
+              <Chip icon={<PersonIcon />} label={`${route.total_people || 0}名`} variant="outlined" />
+              {route.activity_arrival_time && (
+                <Chip icon={<CheckCircleIcon />} label={`到着: ${route.activity_arrival_time}`} variant="outlined" />
+              )}
+            </Box>
+          </Box>
+        </AccordionDetails>
+      </Accordion>
+    );
   };
 
   return (
@@ -88,99 +246,10 @@ const RouteOptimizer = ({
       <Alert 
         severity={getOptimizationStatusColor()} 
         sx={{ mb: 3 }}
-        icon={
-          getOptimizationStatusColor() === 'success' ? <CheckCircleIcon /> : 
-          getOptimizationStatusColor() === 'error' ? <WarningIcon /> : <WarningIcon />
-        }
+        icon={getStatusIcon()}
       >
         {getOptimizationStatusMessage()}
       </Alert>
-
-      {/* 概要情報 */}
-      <Grid container spacing={3} sx={{ mb: 3 }}>
-        <Grid item xs={12} md={4}>
-          <Card>
-            <CardContent>
-              <Typography variant="h6" gutterBottom>
-                ツアー情報
-              </Typography>
-              <List dense>
-                <ListItem>
-                  <ListItemIcon><TimeIcon /></ListItemIcon>
-                  <ListItemText 
-                    primary="日付" 
-                    secondary={tourData.date || '未設定'} 
-                  />
-                </ListItem>
-                <ListItem>
-                  <ListItemIcon><LocationIcon /></ListItemIcon>
-                  <ListItemText 
-                    primary="アクティビティ" 
-                    secondary={tourData.activityType || '未設定'} 
-                  />
-                </ListItem>
-                <ListItem>
-                  <ListItemIcon><TimeIcon /></ListItemIcon>
-                  <ListItemText 
-                    primary="開始時間" 
-                    secondary={tourData.startTime || '未設定'} 
-                  />
-                </ListItem>
-              </List>
-            </CardContent>
-          </Card>
-        </Grid>
-
-        <Grid item xs={12} md={4}>
-          <Card>
-            <CardContent>
-              <Typography variant="h6" gutterBottom>
-                ゲスト情報
-              </Typography>
-              <Box sx={{ textAlign: 'center', py: 2 }}>
-                <Typography variant="h3" color="primary" fontWeight="bold">
-                  {totalGuests}
-                </Typography>
-                <Typography variant="body2" color="text.secondary">
-                  総参加者数
-                </Typography>
-                <Divider sx={{ my: 1 }} />
-                <Typography variant="h6">
-                  {guests.length}
-                </Typography>
-                <Typography variant="body2" color="text.secondary">
-                  ゲストグループ数
-                </Typography>
-              </Box>
-            </CardContent>
-          </Card>
-        </Grid>
-
-        <Grid item xs={12} md={4}>
-          <Card>
-            <CardContent>
-              <Typography variant="h6" gutterBottom>
-                車両情報
-              </Typography>
-              <Box sx={{ textAlign: 'center', py: 2 }}>
-                <Typography variant="h3" color="success.main" fontWeight="bold">
-                  {totalCapacity}
-                </Typography>
-                <Typography variant="body2" color="text.secondary">
-                  総収容人数
-                </Typography>
-                <Divider sx={{ my: 1 }} />
-                <Typography variant="h6" color={availableVehicles.length > 0 ? 'success.main' : 'error.main'}>
-                  {availableVehicles.length}
-                </Typography>
-                <Typography variant="body2" color="text.secondary">
-                  利用可能車両数
-                </Typography>
-              </Box>
-            </CardContent>
-          </Card>
-        </Grid>
-      </Grid>
 
       {/* 環境情報 */}
       {environmentalData && (
@@ -189,206 +258,136 @@ const RouteOptimizer = ({
             <Typography variant="h6" gutterBottom>
               環境情報
             </Typography>
-            <Grid container spacing={2}>
-              <Grid item xs={12} sm={6} md={3}>
-                <Paper sx={{ p: 2, textAlign: 'center' }}>
-                  <Typography variant="h6" color="primary">
-                    {environmentalData.weather?.temperature || 26}°C
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary">
-                    気温
-                  </Typography>
-                </Paper>
-              </Grid>
-              <Grid item xs={12} sm={6} md={3}>
-                <Paper sx={{ p: 2, textAlign: 'center' }}>
-                  <Typography variant="h6" color="info.main">
-                    {environmentalData.weather?.wind_speed || 4.0}m/s
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary">
-                    風速
-                  </Typography>
-                </Paper>
-              </Grid>
-              <Grid item xs={12} sm={6} md={3}>
-                <Paper sx={{ p: 2, textAlign: 'center' }}>
-                  <Typography variant="h6" color="warning.main">
-                    {environmentalData.tide?.current_level || 150}cm
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary">
-                    潮位
-                  </Typography>
-                </Paper>
-              </Grid>
-              <Grid item xs={12} sm={6} md={3}>
-                <Paper sx={{ p: 2, textAlign: 'center' }}>
-                  <Typography variant="h6" color="success.main">
-                    {environmentalData.sea?.wave_height || 0.5}m
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary">
-                    波高
-                  </Typography>
-                </Paper>
-              </Grid>
-            </Grid>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* 最適化結果 */}
-      {hasResults && (
-        <Card>
-          <CardContent>
-            <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center' }}>
-              <TrendingUpIcon sx={{ mr: 1 }} />
-              最適化結果
-            </Typography>
-            
-            <Grid container spacing={2} sx={{ mb: 3 }}>
-              <Grid item xs={12} sm={6} md={3}>
-                <Box sx={{ textAlign: 'center' }}>
-                  <Typography variant="h5" color="primary" fontWeight="bold">
-                    {optimizedRoutes.length}
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary">
-                    使用車両数
-                  </Typography>
-                </Box>
-              </Grid>
-              <Grid item xs={12} sm={6} md={3}>
-                <Box sx={{ textAlign: 'center' }}>
-                  <Typography variant="h5" color="success.main" fontWeight="bold">
-                    {optimizedRoutes.reduce((sum, route) => sum + route.total_distance, 0).toFixed(1)}km
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary">
-                    総移動距離
-                  </Typography>
-                </Box>
-              </Grid>
-              <Grid item xs={12} sm={6} md={3}>
-                <Box sx={{ textAlign: 'center' }}>
-                  <Typography variant="h5" color="warning.main" fontWeight="bold">
-                    {optimizedRoutes.length > 0 ? 
-                      (optimizedRoutes.reduce((sum, route) => sum + route.efficiency_score, 0) / optimizedRoutes.length).toFixed(1) + '%' :
-                      '0%'
-                    }
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary">
-                    平均効率スコア
-                  </Typography>
-                </Box>
-              </Grid>
-              <Grid item xs={12} sm={6} md={3}>
-                <Box sx={{ textAlign: 'center' }}>
-                  <Typography variant="h5" color="info.main" fontWeight="bold">
-                    {optimizedRoutes.reduce((sum, route) => sum + route.route.length, 0)}
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary">
-                    総ピックアップ箇所
-                  </Typography>
-                </Box>
-              </Grid>
-            </Grid>
-
-            {/* 車両別サマリー */}
-            <Typography variant="subtitle1" gutterBottom sx={{ mt: 3 }}>
-              車両別サマリー
-            </Typography>
-            <Grid container spacing={2}>
-              {optimizedRoutes.map((route, index) => (
-                <Grid item xs={12} md={6} key={index}>
-                  <Paper sx={{ p: 2 }} variant="outlined">
-                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-                      <Typography variant="subtitle2" fontWeight="bold">
-                        {route.vehicle_name}
-                      </Typography>
-                      <Chip
-                        label={`効率: ${route.efficiency_score}%`}
-                        color={route.efficiency_score > 80 ? 'success' : route.efficiency_score > 60 ? 'warning' : 'error'}
-                        size="small"
-                      />
-                    </Box>
-                    <Grid container spacing={2}>
-                      <Grid item xs={6}>
-                        <Typography variant="body2" color="text.secondary">
-                          ピックアップ数
-                        </Typography>
-                        <Typography variant="body1" fontWeight="bold">
-                          {route.route.length}箇所
-                        </Typography>
-                      </Grid>
-                      <Grid item xs={6}>
-                        <Typography variant="body2" color="text.secondary">
-                          移動距離
-                        </Typography>
-                        <Typography variant="body1" fontWeight="bold">
-                          {route.total_distance.toFixed(1)}km
-                        </Typography>
-                      </Grid>
-                      <Grid item xs={6}>
-                        <Typography variant="body2" color="text.secondary">
-                          乗客数
-                        </Typography>
-                        <Typography variant="body1" fontWeight="bold">
-                          {route.route.reduce((sum, stop) => sum + stop.num_people, 0)}名
-                        </Typography>
-                      </Grid>
-                      <Grid item xs={6}>
-                        <Typography variant="body2" color="text.secondary">
-                          開始時間
-                        </Typography>
-                        <Typography variant="body1" fontWeight="bold">
-                          {route.route[0]?.pickup_time || '-'}
-                        </Typography>
-                      </Grid>
-                    </Grid>
-                  </Paper>
-                </Grid>
-              ))}
-            </Grid>
-
-            <Box sx={{ mt: 3, textAlign: 'center' }}>
-              <Button
-                variant="outlined"
-                size="large"
-                onClick={() => window.location.hash = '#schedule'}
-                startIcon={<CheckCircleIcon />}
-              >
-                最終スケジュールを確認
-              </Button>
+            <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
+              <Chip label={`天候: ${environmentalData.weather || '不明'}`} />
+              <Chip label={`気温: ${environmentalData.temperature || '--'}°C`} />
+              <Chip label={`風速: ${environmentalData.wind_speed || '--'}m/s`} />
+              <Chip label={`潮汐: ${environmentalData.tide_level || '--'}m`} />
             </Box>
           </CardContent>
         </Card>
       )}
 
-      {/* 最適化実行前の説明 */}
-      {!hasResults && !isLoading && (
+      {/* 統計サマリー */}
+      <Grid container spacing={3} sx={{ mb: 3 }}>
+        <Grid item xs={12} md={3}>
+          <Card>
+            <CardContent>
+              <Typography color="textSecondary" gutterBottom>
+                総ゲスト数
+              </Typography>
+              <Typography variant="h4">
+                {guests.length}組
+              </Typography>
+              <Typography variant="caption">
+                ({totalGuests}名)
+              </Typography>
+            </CardContent>
+          </Card>
+        </Grid>
+        <Grid item xs={12} md={3}>
+          <Card>
+            <CardContent>
+              <Typography color="textSecondary" gutterBottom>
+                利用可能車両
+              </Typography>
+              <Typography variant="h4">
+                {availableVehicles.length}台
+              </Typography>
+              <Typography variant="caption">
+                (総定員: {totalCapacity}名)
+              </Typography>
+            </CardContent>
+          </Card>
+        </Grid>
+        <Grid item xs={12} md={3}>
+          <Card>
+            <CardContent>
+              <Typography color="textSecondary" gutterBottom>
+                座席利用率
+              </Typography>
+              <Typography variant="h4">
+                {totalCapacity > 0 ? Math.round((totalGuests / totalCapacity) * 100) : 0}%
+              </Typography>
+              <LinearProgress 
+                variant="determinate" 
+                value={totalCapacity > 0 ? Math.min((totalGuests / totalCapacity) * 100, 100) : 0}
+                sx={{ mt: 1 }}
+              />
+            </CardContent>
+          </Card>
+        </Grid>
+        <Grid item xs={12} md={3}>
+          <Card>
+            <CardContent>
+              <Typography color="textSecondary" gutterBottom>
+                最適化状態
+              </Typography>
+              <Typography variant="h4">
+                {hasResults ? '完了' : '待機中'}
+              </Typography>
+              <Typography variant="caption">
+                {hasResults ? `${optimizedRoutes.length}ルート` : 'ルートなし'}
+              </Typography>
+            </CardContent>
+          </Card>
+        </Grid>
+      </Grid>
+
+      {/* 最適化結果 */}
+      {hasResults ? (
         <Card>
           <CardContent>
             <Typography variant="h6" gutterBottom>
-              最適化について
+              最適化結果
             </Typography>
-            <Typography variant="body2" paragraph>
-              ルート最適化では以下の要素を考慮して、最も効率的な送迎ルートを計算します：
+            
+            {/* 結果サマリー */}
+            <Box sx={{ mb: 3, p: 2, bgcolor: 'background.paper', borderRadius: 1 }}>
+              <Grid container spacing={2}>
+                <Grid item xs={12} md={3}>
+                  <Typography variant="body2" color="textSecondary">総ルート数</Typography>
+                  <Typography variant="h6">{optimizedRoutes.length}</Typography>
+                </Grid>
+                <Grid item xs={12} md={3}>
+                  <Typography variant="body2" color="textSecondary">総移動距離</Typography>
+                  <Typography variant="h6">
+                    {safeReduce(optimizedRoutes, (sum, route) => sum + (route?.total_distance || 0), 0).toFixed(1)}km
+                  </Typography>
+                </Grid>
+                <Grid item xs={12} md={3}>
+                  <Typography variant="body2" color="textSecondary">総所要時間</Typography>
+                  <Typography variant="h6">
+                    {safeReduce(optimizedRoutes, (sum, route) => sum + (route?.total_time || 0), 0)}分
+                  </Typography>
+                </Grid>
+                <Grid item xs={12} md={3}>
+                  <Typography variant="body2" color="textSecondary">平均効率</Typography>
+                  <Typography variant="h6">
+                    {optimizedRoutes.length > 0 
+                      ? Math.round(safeReduce(optimizedRoutes, (sum, route) => sum + (route?.efficiency_score || 0), 0) / optimizedRoutes.length)
+                      : 0}%
+                  </Typography>
+                </Grid>
+              </Grid>
+            </Box>
+
+            {/* ルート詳細リスト */}
+            <Box>
+              {safeMap(optimizedRoutes, (route, index) => renderRouteDetails(route, index))}
+            </Box>
+          </CardContent>
+        </Card>
+      ) : (
+        <Card>
+          <CardContent sx={{ textAlign: 'center', py: 6 }}>
+            <RouteIcon sx={{ fontSize: 64, color: 'text.secondary', mb: 2 }} />
+            <Typography variant="h6" color="textSecondary" gutterBottom>
+              ルート最適化を実行してください
             </Typography>
-            <List>
-              <ListItem>
-                <ListItemIcon><TimeIcon /></ListItemIcon>
-                <ListItemText primary="ゲストの希望ピックアップ時間" />
-              </ListItem>
-              <ListItem>
-                <ListItemIcon><LocationIcon /></ListItemIcon>
-                <ListItemText primary="ホテルの位置と移動距離" />
-              </ListItem>
-              <ListItem>
-                <ListItemIcon><CarIcon /></ListItemIcon>
-                <ListItemText primary="車両の収容能力と稼働状況" />
-              </ListItem>
-              <ListItem>
-                <ListItemIcon><SpeedIcon /></ListItemIcon>
-                <ListItemText primary="交通状況と環境条件" />
-              </ListItem>
-            </List>
+            <Typography variant="body2" color="textSecondary">
+              ゲストと車両を登録後、「ルート最適化実行」ボタンをクリックしてください
+            </Typography>
           </CardContent>
         </Card>
       )}
