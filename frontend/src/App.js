@@ -19,8 +19,10 @@ import {
   ListItemText,
   ListItemButton,
   Badge,
-  Divider
+  Divider,
+  TextField
 } from '@mui/material';
+import axios from 'axios';
 import {
   Menu as MenuIcon,
   Settings as SettingsIcon,
@@ -42,82 +44,199 @@ import TourSettings from './components/TourSettings';
 import VehicleManager from './components/VehicleManager';
 import GuestList from './components/GuestList';
 import FinalSchedule from './components/FinalSchedule';
-import MapView from './components/MapView'; // MapViewコンポーネントを使用
-import Settings from './components/Settings';
-import { SettingsProvider, useSettings } from './contexts/SettingsContext';
 
-// API関数（既存のapiフォルダがなければモック実装）
-const apiModule = (() => {
+// MapViewコンポーネントのインポート試行
+let MapView = null;
+try {
+  MapView = require('./components/MapView').default;
+} catch (e) {
+  console.log('MapView not found, using SimpleMapView');
   try {
-    return require('./api');
-  } catch (e) {
-    console.warn('API module not found, using mock implementation');
-    // モック実装
-    return {
-      optimizeRoute: async (data) => {
-        // 簡易的な最適化ロジック
-        const mockRoutes = data.vehicles.map((vehicle, index) => {
-          const assignedGuests = data.guests.filter((_, guestIndex) => 
-            guestIndex % data.vehicles.length === index
-          );
-          
-          return {
-            vehicle_id: vehicle.id,
-            vehicle_name: vehicle.name,
-            capacity: vehicle.capacity,
-            route: assignedGuests.map((guest, gIndex) => ({
-              name: guest.name,
-              hotel_name: guest.hotel_name,
-              pickup_lat: guest.pickup_lat,
-              pickup_lng: guest.pickup_lng,
-              num_people: guest.num_people,
-              pickup_time: `0${8 + Math.floor(gIndex / 2)}:${(gIndex % 2) * 30}0`,
-              time_compliance: 'acceptable',
-              preferred_pickup_start: guest.preferred_pickup_start,
-              preferred_pickup_end: guest.preferred_pickup_end
-            })),
-            total_distance: 15 + Math.random() * 10,
-            estimated_duration: `${35 + index * 10}分`,
-            efficiency_score: 75 + Math.random() * 20
-          };
-        }).filter(route => route.route.length > 0);
-
-        return { 
-          vehicle_routes: mockRoutes,
-          ishigaki_recommendations: ['天候良好です', '潮位は最適です']
-        };
-      },
-      getEnvironmentalData: async () => ({
-        weather: { temperature: 25, condition: 'sunny' },
-        tide: { current_level: 150 }
-      }),
-      exportSchedule: async () => {},
-      saveRecord: async () => {},
-      getStatistics: async () => ({}),
-      getSystemStatus: async () => ({ status: 'online' }),
-      batchDataFetch: async () => ({
-        environmentalData: null,
-        statistics: null,
-        system: { status: 'online' },
-        errors: []
-      }),
-      getVehicleOptimizationSuggestions: async () => [],
-      getAIRouteSuggestion: async () => {}
-    };
+    MapView = require('./components/SimpleMapView').default;
+  } catch (e2) {
+    console.log('SimpleMapView not found either');
   }
-})();
+}
 
-const { 
-  optimizeRoute, 
-  getEnvironmentalData, 
-  exportSchedule, 
-  saveRecord, 
-  getStatistics,
-  getSystemStatus,
-  batchDataFetch,
-  getVehicleOptimizationSuggestions,
-  getAIRouteSuggestion
-} = apiModule;
+// Settings関連のインポートを条件付きに
+let Settings = null;
+let SettingsProvider = null;
+let useSettings = null;
+
+try {
+  const SettingsModule = require('./components/Settings');
+  Settings = SettingsModule.default;
+} catch (e) {
+  console.log('Settings component not found');
+}
+
+try {
+  const ContextModule = require('./contexts/SettingsContext');
+  SettingsProvider = ContextModule.SettingsProvider;
+  useSettings = ContextModule.useSettings;
+} catch (e) {
+  console.log('SettingsContext not found, using fallback');
+  // フォールバック実装
+  useSettings = () => ({
+    settings: {
+      companyName: '石垣島ツアー会社',
+      defaultTourTime: '09:00',
+      defaultActivityDuration: 180,
+      locations: {
+        defaultDeparture: {
+          name: '石垣港離島ターミナル',
+          lat: 24.3448,
+          lng: 124.1551
+        },
+        commonDestinations: []
+      }
+    },
+    getDefaultDeparture: () => ({
+      name: '石垣港離島ターミナル',
+      lat: 24.3448,
+      lng: 124.1551
+    }),
+    getOptimizationSettings: () => ({
+      priorityMode: 'balanced',
+      allowOverCapacity: false,
+      maxPickupDelay: 30,
+      groupNearbyGuests: true,
+      nearbyRadiusKm: 2,
+      considerTraffic: true,
+      considerWeather: true,
+      preferredRouteType: 'scenic'
+    }),
+    getVehicleDefaults: () => ({
+      defaultCapacity: 8,
+      defaultVehicleType: 'mini_van',
+      defaultSpeedFactor: 1.0,
+      bufferTimeMinutes: 10,
+      averageSpeedKmh: 35
+    })
+  });
+}
+
+// API関数の定義
+const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
+
+// API関数をオブジェクトとして定義
+const api = {
+  optimizeRoute: async (data) => {
+    try {
+      const response = await axios.post(`${API_BASE_URL}/api/ishigaki/optimize`, data);
+      return response.data;
+    } catch (error) {
+      console.error('API call failed:', error);
+      if (error.response?.status === 422) {
+        throw error;
+      }
+      
+      console.log('Falling back to mock data');
+      const mockRoutes = data.vehicles.map((vehicle, index) => {
+        const assignedGuests = data.guests.filter((_, guestIndex) => 
+          guestIndex % data.vehicles.length === index
+        );
+        
+        return {
+          vehicle_id: vehicle.id,
+          vehicle_name: vehicle.name,
+          capacity: vehicle.capacity,
+          route: assignedGuests.map((guest, gIndex) => ({
+            name: guest.name,
+            hotel_name: guest.hotel_name,
+            pickup_lat: guest.pickup_lat,
+            pickup_lng: guest.pickup_lng,
+            num_people: guest.num_people,
+            pickup_time: `0${8 + Math.floor(gIndex / 2)}:${(gIndex % 2) * 30}0`,
+            time_compliance: 'acceptable',
+            preferred_pickup_start: guest.preferred_pickup_start,
+            preferred_pickup_end: guest.preferred_pickup_end
+          })),
+          total_distance: Math.round((15 + Math.random() * 10) * 10) / 10,
+          estimated_duration: `${35 + index * 10}分`,
+          efficiency_score: Math.round((75 + Math.random() * 20) * 10) / 10
+        };
+      }).filter(route => route.route.length > 0);
+
+      return { 
+        vehicle_routes: mockRoutes,
+        ishigaki_recommendations: ['オフラインモードで最適化しました', '実際のルートとは異なる場合があります']
+      };
+    }
+  },
+
+  getEnvironmentalData: async (date) => {
+    try {
+      const response = await axios.get(`${API_BASE_URL}/api/ishigaki/environmental_data/${date}`);
+      return response.data;
+    } catch (error) {
+      console.log('Using mock environmental data');
+      return {
+        weather: { 
+          temperature: 25, 
+          condition: 'sunny',
+          wind_speed: 4.0,
+          wind_direction: 'NE'
+        },
+        tide: { 
+          current_level: 150,
+          high_times: [
+            { time: '06:23', level: 198 },
+            { time: '18:45', level: 205 }
+          ],
+          low_times: [
+            { time: '00:15', level: 45 },
+            { time: '12:30', level: 38 }
+          ]
+        }
+      };
+    }
+  },
+
+  exportSchedule: async (routes, format) => {
+    try {
+      const response = await axios.post(`${API_BASE_URL}/api/ishigaki/export`, { routes, format });
+      return response.data;
+    } catch (error) {
+      console.log('Export failed:', error);
+      return { success: false };
+    }
+  },
+
+  saveRecord: async (record) => {
+    try {
+      const response = await axios.post(`${API_BASE_URL}/api/ishigaki/save_record`, record);
+      return response.data;
+    } catch (error) {
+      console.log('Save failed:', error);
+      return { success: false };
+    }
+  },
+
+  getStatistics: async (date) => {
+    try {
+      const response = await axios.get(`${API_BASE_URL}/api/ishigaki/statistics/${date}`);
+      return response.data;
+    } catch (error) {
+      console.log('Using mock statistics');
+      return {
+        todayTours: 3,
+        totalGuests: 15,
+        averagePickupTime: 25
+      };
+    }
+  },
+
+  getSystemStatus: async () => {
+    try {
+      const response = await axios.get(`${API_BASE_URL}/api/system/status`);
+      return response.data;
+    } catch (error) {
+      console.log('Using mock system status');
+      return { status: 'online', message: 'API接続エラー（オフラインモード）' };
+    }
+  }
+};
 
 // メインのアプリコンテンツ
 function AppContent() {
@@ -134,17 +253,46 @@ function AppContent() {
 
   // データ状態
   const [tourData, setTourData] = useState({
-    date: new Date().toISOString().split('T')[0],
+    date: new Date().toISOString().split('T')[0].replace(/\//g, '-'), // YYYY-MM-DD形式
     startTime: settings.defaultTourTime,
     activityDuration: settings.defaultActivityDuration,
-    activityLocation: getDefaultDeparture(),
+    activityLocation: { lat: 24.4219, lng: 124.1542, name: '川平湾' }, // デフォルトのアクティビティ場所
+    departureLocation: getDefaultDeparture(), // 出発地点
     activityName: '',
     activityType: 'snorkeling',
     notes: ''
   });
 
-  const [vehicles, setVehicles] = useState([]);
-  const [guests, setGuests] = useState([]);
+  const [vehicles, setVehicles] = useState([
+    {
+      id: 'vehicle_1',
+      name: '車両1',
+      capacity: 8,
+      driver: '山田太郎',
+      vehicleType: 'mini_van',
+      equipment: [],
+      speedFactor: 1.0,
+      color: '#1a73e8'
+    }
+  ]);
+  const [guests, setGuests] = useState([
+    {
+      id: 1,
+      name: 'テストゲスト1',
+      hotel: 'ANAインターコンチネンタル石垣',
+      location: { lat: 24.3736, lng: 124.1578 },
+      people: 2,
+      preferredTime: { start: '08:00', end: '09:00' }
+    },
+    {
+      id: 2,
+      name: 'テストゲスト2',
+      hotel: 'フサキビーチリゾート',
+      location: { lat: 24.3678, lng: 124.1123 },
+      people: 3,
+      preferredTime: { start: '08:00', end: '09:00' }
+    }
+  ]);
   const [optimizedRoutes, setOptimizedRoutes] = useState([]);
   const [environmentalData, setEnvironmentalData] = useState(null);
   const [statistics, setStatistics] = useState(null);
@@ -174,41 +322,23 @@ function AppContent() {
   useEffect(() => {
     const initializeApp = async () => {
       try {
-        // バッチデータ取得
-        const batchData = await batchDataFetch({
-          environmentalData: { date: tourData.date },
-          statistics: { date: tourData.date },
-          systemStatus: true
-        });
-
-        if (batchData.environmentalData) {
-          setEnvironmentalData(batchData.environmentalData);
+        // 環境データのみ取得（統計情報とシステムステータスは必要な時だけ）
+        const envData = await api.getEnvironmentalData(tourData.date);
+        if (envData) {
+          setEnvironmentalData(envData);
         }
-        
-        if (batchData.statistics) {
-          setStatistics(batchData.statistics);
-        }
-        
-        if (batchData.system) {
-          setSystemStatus(batchData.system);
-        }
-
-        // エラーがあってもアプリは継続動作
-        if (batchData.errors.length > 0) {
-          console.warn('一部データの読み込みに失敗:', batchData.errors);
-          if (batchData.errors.length === 3) {
-            addNotification('オフラインモードで動作中', 'warning');
-          }
-        }
-
       } catch (error) {
-        console.error('アプリ初期化エラー:', error);
-        addNotification('初期化中にエラーが発生しましたが、継続して使用できます', 'warning');
+        console.log('環境データの取得に失敗しました（オフラインモード）');
+        // オフラインでも動作を継続
+        setEnvironmentalData({
+          weather: { temperature: 25, condition: 'sunny' },
+          tide: { current_level: 150 }
+        });
       }
     };
 
     initializeApp();
-  }, [tourData.date, addNotification]);
+  }, [tourData.date]);
 
   // 設定から共通目的地を取得
   const getCommonDestinations = () => {
@@ -295,6 +425,9 @@ function AppContent() {
     try {
       // アクティビティロケーションの検証
       if (!tourData.activityLocation) {
+        // デフォルトのアクティビティ場所を設定
+        const defaultActivity = { lat: 24.4219, lng: 124.1542, name: '川平湾' };
+        setTourData(prev => ({ ...prev, activityLocation: defaultActivity }));
         throw new Error('アクティビティの場所を設定してください');
       }
 
@@ -306,49 +439,45 @@ function AppContent() {
         throw new Error('車両を追加してください');
       }
 
-      // 最適化設定を取得
-      const optimizationSettings = getOptimizationSettings();
-      const vehicleDefaults = getVehicleDefaults();
+      // ゲストデータの検証と修正
+      const validGuests = guests.map(guest => ({
+        name: guest.name || 'ゲスト',
+        hotel_name: guest.hotel || 'ホテル未設定',
+        pickup_lat: guest.location?.lat || 24.3448,
+        pickup_lng: guest.location?.lng || 124.1551,
+        num_people: guest.people || 1,
+        preferred_pickup_start: guest.preferredTime?.start || '08:00',
+        preferred_pickup_end: guest.preferredTime?.end || '09:00'
+      }));
 
-      // リクエストデータ構築
+      // 車両データの検証と修正
+      const validVehicles = vehicles.map(vehicle => ({
+        id: vehicle.id,
+        name: vehicle.name || '車両',
+        capacity: vehicle.capacity || 8,
+        vehicle_type: vehicle.vehicleType || 'mini_van',
+        driver_name: vehicle.driver || 'ドライバー',
+        equipment: vehicle.equipment || [],
+        speed_factor: vehicle.speedFactor || 1.0
+      }));
+
+      // リクエストデータ構築（バックエンドの期待する形式に合わせる）
       const requestData = {
-        guests: guests.map(guest => ({
-          name: guest.name,
-          hotel_name: guest.hotel,
-          pickup_lat: guest.location.lat,
-          pickup_lng: guest.location.lng,
-          num_people: guest.people,
-          preferred_pickup_start: guest.preferredTime.start,
-          preferred_pickup_end: guest.preferredTime.end
-        })),
-        vehicles: vehicles.map(vehicle => ({
-          id: vehicle.id,
-          name: vehicle.name,
-          capacity: vehicle.capacity,
-          vehicle_type: vehicle.vehicleType || vehicleDefaults.defaultVehicleType,
-          driver_name: vehicle.driver,
-          equipment: vehicle.equipment || [],
-          speed_factor: vehicle.speedFactor || vehicleDefaults.defaultSpeedFactor
-        })),
+        guests: validGuests,
+        vehicles: validVehicles,
         activity_lat: tourData.activityLocation.lat,
         activity_lng: tourData.activityLocation.lng,
-        activity_start_time: tourData.startTime,
-        tour_date: tourData.date,
-        optimization_params: {
-          priority_mode: optimizationSettings.priorityMode,
-          allow_over_capacity: optimizationSettings.allowOverCapacity,
-          max_pickup_delay: optimizationSettings.maxPickupDelay,
-          group_nearby_guests: optimizationSettings.groupNearbyGuests,
-          nearby_radius_km: optimizationSettings.nearbyRadiusKm,
-          consider_traffic: optimizationSettings.considerTraffic,
-          consider_weather: optimizationSettings.considerWeather,
-          preferred_route_type: optimizationSettings.preferredRouteType,
-          buffer_time_minutes: vehicleDefaults.bufferTimeMinutes,
-          average_speed_kmh: vehicleDefaults.averageSpeedKmh
-        }
+        activity_start_time: tourData.startTime || '10:00',
+        tour_date: tourData.date ? tourData.date.replace(/\//g, '-') : new Date().toISOString().split('T')[0],
+        // バックエンドが期待する追加フィールド
+        date: tourData.date ? tourData.date.replace(/\//g, '-') : new Date().toISOString().split('T')[0],
+        activity_type: tourData.activityType || 'snorkeling',
+        planned_start_time: tourData.startTime || '10:00'
       };
 
-      const result = await optimizeRoute(requestData);
+      console.log('Optimization request:', JSON.stringify(requestData, null, 2));
+
+      const result = await api.optimizeRoute(requestData);
       
       if (result.vehicle_routes && result.vehicle_routes.length > 0) {
         setOptimizedRoutes(result.vehicle_routes);
@@ -370,15 +499,35 @@ function AppContent() {
     } catch (error) {
       console.error('最適化エラー:', error);
       
-      if (error.response?.status === 503 || error.code === 'ECONNABORTED') {
+      if (error.response?.status === 422) {
+        // バリデーションエラーの詳細を確認
+        const errorData = error.response.data;
+        console.error('Validation error details:', errorData);
+        
+        // エラーメッセージを詳細に表示
+        if (errorData.detail) {
+          if (Array.isArray(errorData.detail)) {
+            const messages = errorData.detail.map(err => 
+              `${err.loc ? err.loc.join('.') : ''}: ${err.msg}`
+            );
+            setErrors(messages);
+          } else {
+            setErrors([errorData.detail]);
+          }
+        } else {
+          setErrors(['入力データに問題があります。すべての項目を正しく入力してください。']);
+        }
+      } else if (error.response?.status === 503 || error.code === 'ECONNABORTED') {
+        // オフラインモードでフォールバック
         generateFallbackRoutes();
+        addNotification('オフラインモードで最適化しました', 'warning');
       } else {
         setErrors([error.message || '最適化中にエラーが発生しました']);
       }
     } finally {
       setLoading(false);
     }
-  }, [tourData, guests, vehicles, addNotification, generateFallbackRoutes, getOptimizationSettings, getVehicleDefaults]);
+  }, [tourData, guests, vehicles, addNotification, generateFallbackRoutes, setTourData]);
 
   // 天候アイコンの取得
   const getWeatherIcon = () => {
@@ -594,13 +743,107 @@ function AppContent() {
                     <Typography variant="h6" sx={{ mb: 2 }}>
                       <LocationIcon /> ルートマップ
                     </Typography>
-                    {/* MapViewコンポーネントを使用 */}
-                    <MapView
-                      guests={guests}
-                      tourData={tourData}
-                      optimizedRoutes={optimizedRoutes}
-                      vehicles={vehicles}
-                    />
+                    {/* MapViewコンポーネント（利用可能な場合） */}
+                    {MapView ? (
+                      <MapView
+                        guests={guests}
+                        vehicles={vehicles}
+                        activityLocation={tourData.activityLocation}
+                        departureLocation={tourData.departureLocation || getDefaultDeparture()}
+                        optimizedRoutes={optimizedRoutes}
+                        onGuestLocationUpdate={handleGuestLocationUpdate}
+                        onActivityLocationUpdate={(location) => {
+                          setTourData(prev => ({ ...prev, activityLocation: location }));
+                        }}
+                        onDepartureLocationUpdate={(location) => {
+                          setTourData(prev => ({ ...prev, departureLocation: location }));
+                        }}
+                        ishigakiMode={true}
+                      />
+                    ) : (
+                      /* 地図コンポーネントが無い場合の代替表示 */
+                      <Box sx={{ height: '600px', position: 'relative' }}>
+                        <Box sx={{ 
+                          height: '100%',
+                          bgcolor: '#f5f5f5',
+                          borderRadius: 1,
+                          overflow: 'auto'
+                        }}>
+                          {/* ルート情報の表示 */}
+                          <Box sx={{ p: 2 }}>
+                            <Typography variant="h6" gutterBottom>
+                              🗺️ ルート概要
+                            </Typography>
+                            
+                            {/* 出発地点 */}
+                            {tourData.departureLocation && (
+                              <Box sx={{ mb: 2 }}>
+                                <Chip
+                                  icon={<CarIcon />}
+                                  label={`出発: ${tourData.departureLocation.name || '出発地点'}`}
+                                  color="success"
+                                  sx={{ mb: 1 }}
+                                />
+                              </Box>
+                            )}
+
+                            {/* 最適化されたルート */}
+                            {optimizedRoutes && optimizedRoutes.length > 0 ? (
+                              <Box>
+                                {optimizedRoutes.map((route, index) => {
+                                  const vehicle = vehicles[index];
+                                  if (!vehicle || !route.route || route.route.length === 0) return null;
+                                  
+                                  return (
+                                    <Box key={route.vehicle_id} sx={{ mb: 3 }}>
+                                      <Typography 
+                                        variant="subtitle1" 
+                                        sx={{ 
+                                          color: vehicle.color || '#1a73e8',
+                                          fontWeight: 'bold',
+                                          mb: 1
+                                        }}
+                                      >
+                                        🚗 {vehicle.name}
+                                      </Typography>
+                                      <Box sx={{ pl: 2 }}>
+                                        {route.route.map((stop, stopIndex) => (
+                                          <Box key={stopIndex} sx={{ mb: 1 }}>
+                                            <Typography variant="body2">
+                                              {stopIndex + 1}. {stop.pickup_time} - {stop.name}
+                                            </Typography>
+                                            <Typography variant="caption" color="text.secondary" sx={{ pl: 2 }}>
+                                              {stop.hotel_name} ({stop.num_people}名)
+                                            </Typography>
+                                          </Box>
+                                        ))}
+                                      </Box>
+                                    </Box>
+                                  );
+                                })}
+                              </Box>
+                            ) : (
+                              <Box sx={{ textAlign: 'center', py: 4 }}>
+                                <Typography color="text.secondary">
+                                  ルートを最適化すると、ここに表示されます
+                                </Typography>
+                              </Box>
+                            )}
+
+                            {/* アクティビティ地点 */}
+                            {tourData.activityLocation && (
+                              <Box sx={{ mt: 2 }}>
+                                <Chip
+                                  icon={<LocationIcon />}
+                                  label={`到着: ${tourData.activityLocation.name || 'アクティビティ地点'}`}
+                                  color="error"
+                                />
+                              </Box>
+                            )}
+                          </Box>
+                        </Box>
+                      </Box>
+                    )}
                   </Paper>
 
                   {/* 最終スケジュール */}
@@ -612,7 +855,7 @@ function AppContent() {
                       environmentalData={environmentalData}
                       onExport={async (format) => {
                         try {
-                          const result = await exportSchedule(optimizedRoutes, format);
+                          const result = await api.exportSchedule(optimizedRoutes, format);
                           addNotification(`スケジュールを${format}形式でエクスポートしました`, 'success');
                         } catch (error) {
                           addNotification('エクスポートに失敗しました', 'error');
@@ -656,7 +899,7 @@ function AppContent() {
         {currentView === 'settings' && (
           <Container maxWidth="lg" sx={{ mt: 3, mb: 3 }}>
             <Paper sx={{ p: 3 }}>
-              {/* Settingsコンポーネントが存在しない場合のフォールバック */}
+              {/* 完全な設定画面を表示 */}
               {Settings ? (
                 <Settings 
                   settings={settings} 
@@ -666,7 +909,51 @@ function AppContent() {
                   }} 
                 />
               ) : (
-                <Typography>設定コンポーネントを準備中...</Typography>
+                // Settingsコンポーネントがない場合は、基本的な設定画面を表示
+                <Box>
+                  <Typography variant="h5" gutterBottom>
+                    <SettingsIcon /> 設定
+                  </Typography>
+                  
+                  <Box sx={{ mt: 3 }}>
+                    <Typography variant="h6" gutterBottom>
+                      基本設定
+                    </Typography>
+                    
+                    <Grid container spacing={2}>
+                      <Grid item xs={12} md={6}>
+                        <TextField
+                          fullWidth
+                          label="会社名"
+                          value={settings.companyName}
+                          disabled
+                        />
+                      </Grid>
+                      <Grid item xs={12} md={3}>
+                        <TextField
+                          fullWidth
+                          label="デフォルト開始時刻"
+                          type="time"
+                          value={settings.defaultTourTime}
+                          disabled
+                        />
+                      </Grid>
+                      <Grid item xs={12} md={3}>
+                        <TextField
+                          fullWidth
+                          label="デフォルト活動時間（分）"
+                          type="number"
+                          value={settings.defaultActivityDuration}
+                          disabled
+                        />
+                      </Grid>
+                    </Grid>
+                    
+                    <Typography sx={{ mt: 3 }} color="text.secondary">
+                      設定を変更するには、Settings.jsコンポーネントが必要です。
+                    </Typography>
+                  </Box>
+                </Box>
               )}
             </Paper>
           </Container>
@@ -679,13 +966,16 @@ function AppContent() {
 // メインのAppコンポーネント
 function App() {
   // SettingsProviderが存在しない場合のフォールバック
-  const ProviderComponent = SettingsProvider || (({ children }) => children);
-  
-  return (
-    <ProviderComponent>
-      <AppContent />
-    </ProviderComponent>
-  );
+  if (SettingsProvider) {
+    return (
+      <SettingsProvider>
+        <AppContent />
+      </SettingsProvider>
+    );
+  } else {
+    // SettingsProviderがない場合は直接レンダリング
+    return <AppContent />;
+  }
 }
 
 export default App;
