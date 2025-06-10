@@ -1,31 +1,47 @@
 {
   "name": "ishigaki-tour-frontend",
-  "version": "1.0.0",
+  "version": "2.0.0",
+  "description": "石垣島ツアー送迎管理システム - フロントエンド",
   "private": true,
   "dependencies": {
-    "@emotion/react": "^11.13.3",
-    "@emotion/styled": "^11.13.0",
-    "@googlemaps/js-api-loader": "^1.16.8",
-    "@mui/icons-material": "^5.16.7",
-    "@mui/lab": "^5.0.0-alpha.173",
-    "@mui/material": "^5.16.7",
-    "@react-google-maps/api": "^2.20.6",
-    "axios": "^1.7.7",
-    "date-fns": "^3.6.0",
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1",
-    "react-scripts": "5.0.1"
+    "@emotion/react": "^11.11.1",
+    "@emotion/styled": "^11.11.0",
+    "@mui/icons-material": "^5.14.16",
+    "@mui/material": "^5.14.17",
+    "@mui/x-date-pickers": "^6.18.1",
+    "@testing-library/jest-dom": "^5.17.0",
+    "@testing-library/react": "^13.4.0",
+    "@testing-library/user-event": "^13.5.0",
+    "axios": "^1.6.0",
+    "date-fns": "^2.30.0",
+    "leaflet": "^1.9.4",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-leaflet": "^4.2.1",
+    "react-router-dom": "^6.17.0",
+    "react-scripts": "5.0.1",
+    "recharts": "^2.8.0",
+    "web-vitals": "^2.1.4"
   },
   "scripts": {
     "start": "react-scripts start",
     "build": "react-scripts build",
     "test": "react-scripts test",
-    "eject": "react-scripts eject"
+    "eject": "react-scripts eject",
+    "lint": "eslint src --ext .js,.jsx,.ts,.tsx",
+    "lint:fix": "eslint src --ext .js,.jsx,.ts,.tsx --fix",
+    "format": "prettier --write src/**/*.{js,jsx,ts,tsx,json,css,md}"
   },
   "eslintConfig": {
     "extends": [
-      "react-app"
-    ]
+      "react-app",
+      "react-app/jest"
+    ],
+    "rules": {
+      "no-unused-vars": "warn",
+      "no-console": "off",
+      "react-hooks/exhaustive-deps": "warn"
+    }
   },
   "browserslist": {
     "production": [
@@ -39,9 +55,13 @@
       "last 1 safari version"
     ]
   },
+  "devDependencies": {
+    "@types/leaflet": "^1.9.8",
+    "eslint": "^8.53.0",
+    "eslint-plugin-react": "^7.33.2",
+    "eslint-plugin-react-hooks": "^4.6.0",
+    "prettier": "^3.0.3"
+  },
   "proxy": "http://localhost:8000",
-  "overrides": {
-    "nth-check": "^2.1.1",
-    "postcss": "^8.4.31"
-  }
+  "homepage": "."
 }

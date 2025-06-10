@@ -1,13 +1,60 @@
+# FastAPI関連
 fastapi==0.104.1
 uvicorn[standard]==0.24.0
 pydantic==2.5.0
 python-multipart==0.0.6
+
+# データベース関連
 sqlalchemy==2.0.23
+sqlite3  # Pythonの標準ライブラリなので不要だが明示
+
+# データ処理・機械学習
 pandas==2.1.3
 numpy==1.26.2
 scikit-learn==1.3.2
 joblib==1.3.2
+
+# 環境設定
 python-dotenv==1.0.0
+
+# HTTP関連
 httpx==0.25.2
+requests==2.31.0
+
+# HTML/XMLパース
 beautifulsoup4==4.12.2
 lxml==4.9.3
+
+# 日時処理
+python-dateutil==2.8.2
+
+# 数学・計算
+scipy==1.11.4
+geopy==2.4.0
+
+# 開発・テスト
+pytest==7.4.3
+pytest-asyncio==0.21.1
+
+# ログ
+loguru==0.7.2
+
+# 非同期処理
+asyncio  # 標準ライブラリ
+
+# API関連
+aiofiles==23.2.1
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+
+# 石垣島特有の処理用
+pytz==2023.3
+
+# オプション: 機械学習強化
+# tensorflow==2.14.0  # 必要に応じて
+# torch==2.1.0        # 必要に応じて
+
+# 開発用（本番では不要）
+black==23.10.1
+flake8==6.1.0
+isort==5.12.0

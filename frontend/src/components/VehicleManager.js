@@ -1,30 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import {
-  Box,
-  Typography,
-  Button,
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
-  TextField,
-  FormControl,
-  InputLabel,
-  Select,
-  MenuItem,
-  Chip,
-  Card,
-  CardContent,
-  IconButton,
-  Grid,
-  Tooltip,
-  Alert,
-  Accordion,
-  AccordionSummary,
-  AccordionDetails,
-  FormControlLabel,
-  Switch,
-  Slider
+  Box, Card, CardContent, Typography, Grid, TextField,
+  Button, IconButton, FormControl, InputLabel, Select, MenuItem,
+  Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
+  Paper, Chip, Dialog, DialogTitle, DialogContent, DialogActions,
+  Stack, Alert, Tooltip, FormControlLabel, Checkbox
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -33,524 +13,451 @@ import {
   DirectionsCar as CarIcon,
   Person as PersonIcon,
   Speed as SpeedIcon,
-  Build as EquipmentIcon,
-  ExpandMore as ExpandMoreIcon,
-  LocalShipping as TruckIcon,
-  DriveEta as VanIcon,
-  DirectionsRun as MiniIcon
+  Build as BuildIcon
 } from '@mui/icons-material';
-import { getVehicleOptimizationSuggestions } from '../services/api';
 
-const VehicleManager = ({ vehicles, onUpdate, ishigakiMode = false }) => {
+const VehicleManager = ({ vehicles, onVehiclesUpdate }) => {
   const [open, setOpen] = useState(false);
-  const [editingVehicle, setEditingVehicle] = useState(null);
-  const [suggestions, setSuggestions] = useState(null);
-  const [showAdvanced, setShowAdvanced] = useState(false);
-  
-  const [formData, setFormData] = useState({
+  const [editingIndex, setEditingIndex] = useState(-1);
+  const [currentVehicle, setCurrentVehicle] = useState({
+    id: '',
     name: '',
     capacity: 8,
-    driver: '',
     vehicleType: 'mini_van',
+    driver: '',
     equipment: [],
     speedFactor: 1.0,
-    fuelEfficiency: 10.0,
-    color: '#1a73e8'
+    fuelType: 'gasoline',
+    plateNumber: '',
+    notes: ''
   });
 
-  // 石垣島の車両タイプ定義
-  const ishigakiVehicleTypes = {
-    'mini_van': {
-      label: 'ミニバン',
-      icon: <VanIcon />,
-      description: '7-10名乗り、最も一般的',
-      defaultCapacity: 8,
-      speedFactor: 1.0
-    },
-    'bus': {
-      label: 'マイクロバス',
-      icon: <TruckIcon />,
-      description: '15-25名乗り、大グループ向け',
-      defaultCapacity: 20,
-      speedFactor: 0.9
-    },
-    'luxury_car': {
-      label: '高級車',
-      icon: <CarIcon />,
-      description: '4-6名乗り、VIP送迎',
-      defaultCapacity: 4,
-      speedFactor: 1.2
-    },
-    'compact': {
-      label: '軽自動車',
-      icon: <MiniIcon />,
-      description: '2-4名乗り、少人数対応',
-      defaultCapacity: 4,
-      speedFactor: 1.1
-    }
-  };
+  // 車両タイプの選択肢
+  const vehicleTypes = [
+    { value: 'mini_van', label: 'ミニバン', capacity: 8 },
+    { value: 'sedan', label: 'セダン', capacity: 4 },
+    { value: 'wagon', label: 'ワゴン', capacity: 6 },
+    { value: 'suv', label: 'SUV', capacity: 7 },
+    { value: 'bus', label: 'マイクロバス', capacity: 20 },
+    { value: 'other', label: 'その他', capacity: 8 }
+  ];
 
-  // 石垣島の標準装備品
-  const ishigakiEquipment = [
-    'シュノーケル用具',
-    'フィン・マスク',
-    'ライフジャケット',
-    'タオル',
-    'ドリンク',
-    'パラソル',
+  // 装備オプション
+  const equipmentOptions = [
+    'チャイルドシート',
+    'ベビーシート',
+    '車椅子対応',
+    'Wi-Fi',
+    'USB充電器',
     'クーラーボックス',
-    '応急処置セット',
-    'フローティングマット',
-    'ウェットスーツ',
-    'シャワー設備',
-    '更衣室'
+    'シュノーケル用品',
+    'タオル',
+    '日除けパラソル',
+    '防水バッグ'
   ];
 
-  // 車両色のプリセット
-  const colorPresets = [
-    '#1a73e8', '#34a853', '#ea4335', '#fbbc04', 
-    '#673ab7', '#ff6d00', '#00acc1', '#ab47bc'
-  ];
-
-  useEffect(() => {
-    if (ishigakiMode && vehicles.length > 0) {
-      loadOptimizationSuggestions();
+  // ダイアログを開く
+  const handleOpenDialog = (index = -1) => {
+    if (index >= 0) {
+      setCurrentVehicle({ ...vehicles[index] });
+      setEditingIndex(index);
+    } else {
+      const newId = `vehicle_${Date.now()}`;
+      setCurrentVehicle({
+        id: newId,
+        name: '',
+        capacity: 8,
+        vehicleType: 'mini_van',
+        driver: '',
+        equipment: [],
+        speedFactor: 1.0,
+        fuelType: 'gasoline',
+        plateNumber: '',
+        notes: ''
+      });
+      setEditingIndex(-1);
     }
-  }, [vehicles.length, ishigakiMode]);
-
-  const loadOptimizationSuggestions = async () => {
-    try {
-      const suggestions = await getVehicleOptimizationSuggestions(vehicles.length);
-      setSuggestions(suggestions);
-    } catch (error) {
-      console.warn('車両最適化提案の取得に失敗:', error);
-    }
+    setOpen(true);
   };
 
-  const handleAdd = () => {
-    setEditingVehicle(null);
-    setFormData({
+  // ダイアログを閉じる
+  const handleCloseDialog = () => {
+    setOpen(false);
+    setCurrentVehicle({
+      id: '',
       name: '',
       capacity: 8,
-      driver: '',
       vehicleType: 'mini_van',
+      driver: '',
       equipment: [],
       speedFactor: 1.0,
-      fuelEfficiency: 10.0,
-      color: colorPresets[vehicles.length % colorPresets.length]
+      fuelType: 'gasoline',
+      plateNumber: '',
+      notes: ''
     });
-    setOpen(true);
+    setEditingIndex(-1);
   };
 
-  const handleEdit = (vehicle) => {
-    setEditingVehicle(vehicle);
-    setFormData({
-      name: vehicle.name,
-      capacity: vehicle.capacity,
-      driver: vehicle.driver,
-      vehicleType: vehicle.vehicleType || 'mini_van',
-      equipment: vehicle.equipment || [],
-      speedFactor: vehicle.speedFactor || 1.0,
-      fuelEfficiency: vehicle.fuelEfficiency || 10.0,
-      color: vehicle.color || '#1a73e8'
-    });
-    setOpen(true);
-  };
+  // 車両保存
+  const handleSaveVehicle = () => {
+    // バリデーション
+    if (!currentVehicle.name.trim()) {
+      alert('車両名を入力してください');
+      return;
+    }
+    if (!currentVehicle.driver.trim()) {
+      alert('ドライバー名を入力してください');
+      return;
+    }
+    if (currentVehicle.capacity < 1) {
+      alert('定員は1以上で入力してください');
+      return;
+    }
 
-  const handleSave = () => {
-    const vehicleData = {
-      ...formData,
-      id: editingVehicle ? editingVehicle.id : `vehicle_${Date.now()}`,
-    };
-
-    if (editingVehicle) {
-      const updatedVehicles = vehicles.map(v => 
-        v.id === editingVehicle.id ? vehicleData : v
-      );
-      onUpdate(updatedVehicles);
+    const newVehicles = [...vehicles];
+    if (editingIndex >= 0) {
+      newVehicles[editingIndex] = { ...currentVehicle };
     } else {
-      onUpdate([...vehicles, vehicleData]);
+      newVehicles.push({ ...currentVehicle });
     }
+    
+    onVehiclesUpdate(newVehicles);
+    handleCloseDialog();
+  };
 
-    setOpen(false);
-    if (ishigakiMode) {
-      loadOptimizationSuggestions();
+  // 車両削除
+  const handleDeleteVehicle = (index) => {
+    if (window.confirm('この車両を削除しますか？')) {
+      const newVehicles = vehicles.filter((_, i) => i !== index);
+      onVehiclesUpdate(newVehicles);
     }
   };
 
-  const handleDelete = (vehicleId) => {
-    const updatedVehicles = vehicles.filter(v => v.id !== vehicleId);
-    onUpdate(updatedVehicles);
-    if (ishigakiMode) {
-      loadOptimizationSuggestions();
-    }
+  // 入力フィールドの変更
+  const handleInputChange = (field, value) => {
+    setCurrentVehicle(prev => ({
+      ...prev,
+      [field]: value
+    }));
   };
 
-  const handleVehicleTypeChange = (type) => {
-    const typeConfig = ishigakiVehicleTypes[type];
-    setFormData({
-      ...formData,
-      vehicleType: type,
-      capacity: typeConfig.defaultCapacity,
-      speedFactor: typeConfig.speedFactor
+  // 車両タイプ変更時に定員を自動更新
+  const handleVehicleTypeChange = (value) => {
+    const selectedType = vehicleTypes.find(type => type.value === value);
+    setCurrentVehicle(prev => ({
+      ...prev,
+      vehicleType: value,
+      capacity: selectedType ? selectedType.capacity : prev.capacity
+    }));
+  };
+
+  // 装備のチェック変更
+  const handleEquipmentChange = (equipment) => {
+    setCurrentVehicle(prev => {
+      const newEquipment = prev.equipment.includes(equipment)
+        ? prev.equipment.filter(item => item !== equipment)
+        : [...prev.equipment, equipment];
+      return {
+        ...prev,
+        equipment: newEquipment
+      };
     });
   };
 
-  const handleEquipmentToggle = (equipment) => {
-    const currentEquipment = formData.equipment;
-    const newEquipment = currentEquipment.includes(equipment)
-      ? currentEquipment.filter(e => e !== equipment)
-      : [...currentEquipment, equipment];
-    
-    setFormData({ ...formData, equipment: newEquipment });
-  };
-
-  const getVehicleIcon = (type) => {
-    return ishigakiVehicleTypes[type]?.icon || <CarIcon />;
-  };
-
-  const getTotalCapacity = () => {
-    return vehicles.reduce((total, vehicle) => total + vehicle.capacity, 0);
-  };
-
-  const getAverageSpeedFactor = () => {
-    if (vehicles.length === 0) return 1.0;
-    const total = vehicles.reduce((sum, vehicle) => sum + (vehicle.speedFactor || 1.0), 0);
-    return (total / vehicles.length).toFixed(2);
-  };
+  // 総定員計算
+  const totalCapacity = vehicles.reduce((sum, vehicle) => sum + vehicle.capacity, 0);
 
   return (
-    <Box>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-        <Typography variant="h6">
-          🚗 車両管理 {ishigakiMode && '(石垣島仕様)'}
+    <Box sx={{ p: 2 }}>
+      <Box sx={{ display: 'flex', justifyContent: 'between', alignItems: 'center', mb: 3 }}>
+        <Typography variant="h5" sx={{ display: 'flex', alignItems: 'center' }}>
+          <CarIcon sx={{ mr: 1 }} />
+          車両管理
         </Typography>
         <Button
           variant="contained"
           startIcon={<AddIcon />}
-          onClick={handleAdd}
-          size="small"
+          onClick={() => handleOpenDialog()}
+          sx={{ ml: 'auto' }}
         >
           車両追加
         </Button>
       </Box>
 
-      {/* 統計情報 */}
-      <Box sx={{ mb: 2, p: 2, bgcolor: 'grey.50', borderRadius: 1 }}>
-        <Grid container spacing={2}>
-          <Grid item xs={4}>
-            <Typography variant="caption" color="text.secondary">
-              総車両数
-            </Typography>
-            <Typography variant="h6">{vehicles.length}台</Typography>
-          </Grid>
-          <Grid item xs={4}>
-            <Typography variant="caption" color="text.secondary">
-              総定員
-            </Typography>
-            <Typography variant="h6">{getTotalCapacity()}名</Typography>
-          </Grid>
-          <Grid item xs={4}>
-            <Typography variant="caption" color="text.secondary">
-              平均速度係数
-            </Typography>
-            <Typography variant="h6">{getAverageSpeedFactor()}</Typography>
-          </Grid>
+      {/* サマリーカード */}
+      <Grid container spacing={2} sx={{ mb: 3 }}>
+        <Grid item xs={12} sm={6} md={3}>
+          <Card>
+            <CardContent sx={{ textAlign: 'center' }}>
+              <CarIcon color="primary" sx={{ fontSize: 40, mb: 1 }} />
+              <Typography variant="h4">{vehicles.length}</Typography>
+              <Typography variant="body2" color="text.secondary">
+                登録車両
+              </Typography>
+            </CardContent>
+          </Card>
         </Grid>
-      </Box>
-
-      {/* 最適化提案 */}
-      {ishigakiMode && suggestions && (
-        <Accordion sx={{ mb: 2 }}>
-          <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-            <Typography variant="subtitle2">
-              🎯 石垣島車両最適化提案
-            </Typography>
-          </AccordionSummary>
-          <AccordionDetails>
-            <Box>
-              {suggestions.recommendations.map((rec, index) => (
-                <Typography key={index} variant="body2" sx={{ mb: 1 }}>
-                  • {rec}
-                </Typography>
-              ))}
-              {suggestions.ishigaki_specific && suggestions.ishigaki_specific.length > 0 && (
-                <Box sx={{ mt: 2, p: 1, bgcolor: 'info.light', borderRadius: 1 }}>
-                  <Typography variant="caption" color="info.dark" display="block">
-                    石垣島特有の推奨事項:
-                  </Typography>
-                  {suggestions.ishigaki_specific.map((rec, index) => (
-                    <Typography key={index} variant="body2" color="info.dark">
-                      • {rec}
-                    </Typography>
-                  ))}
-                </Box>
-              )}
-            </Box>
-          </AccordionDetails>
-        </Accordion>
-      )}
+        <Grid item xs={12} sm={6} md={3}>
+          <Card>
+            <CardContent sx={{ textAlign: 'center' }}>
+              <PersonIcon color="secondary" sx={{ fontSize: 40, mb: 1 }} />
+              <Typography variant="h4">{totalCapacity}</Typography>
+              <Typography variant="body2" color="text.secondary">
+                総定員
+              </Typography>
+            </CardContent>
+          </Card>
+        </Grid>
+        <Grid item xs={12} sm={6} md={3}>
+          <Card>
+            <CardContent sx={{ textAlign: 'center' }}>
+              <SpeedIcon color="info" sx={{ fontSize: 40, mb: 1 }} />
+              <Typography variant="h4">
+                {vehicles.length > 0 ? 
+                  (vehicles.reduce((sum, v) => sum + v.speedFactor, 0) / vehicles.length).toFixed(1) : 
+                  '0'
+                }
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                平均速度係数
+              </Typography>
+            </CardContent>
+          </Card>
+        </Grid>
+        <Grid item xs={12} sm={6} md={3}>
+          <Card>
+            <CardContent sx={{ textAlign: 'center' }}>
+              <BuildIcon color="warning" sx={{ fontSize: 40, mb: 1 }} />
+              <Typography variant="h4">
+                {vehicles.reduce((sum, v) => sum + v.equipment.length, 0)}
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                総装備数
+              </Typography>
+            </CardContent>
+          </Card>
+        </Grid>
+      </Grid>
 
       {/* 車両リスト */}
-      <Box sx={{ maxHeight: 400, overflow: 'auto' }}>
-        {vehicles.map((vehicle) => (
-          <Card key={vehicle.id} sx={{ mb: 1, border: `2px solid ${vehicle.color}` }}>
-            <CardContent sx={{ py: 1 }}>
-              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                  {getVehicleIcon(vehicle.vehicleType)}
-                  <Box>
-                    <Typography variant="subtitle2">
+      {vehicles.length === 0 ? (
+        <Alert severity="info" sx={{ mb: 2 }}>
+          車両が登録されていません。「車両追加」ボタンから車両を追加してください。
+        </Alert>
+      ) : (
+        <TableContainer component={Paper}>
+          <Table>
+            <TableHead>
+              <TableRow>
+                <TableCell>車両名</TableCell>
+                <TableCell>タイプ</TableCell>
+                <TableCell>ドライバー</TableCell>
+                <TableCell align="center">定員</TableCell>
+                <TableCell>装備</TableCell>
+                <TableCell align="center">速度係数</TableCell>
+                <TableCell align="center">操作</TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {vehicles.map((vehicle, index) => (
+                <TableRow key={vehicle.id || index} hover>
+                  <TableCell>
+                    <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                      <CarIcon sx={{ mr: 1, color: 'text.secondary' }} />
                       {vehicle.name}
-                    </Typography>
-                    <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-                      <Chip
-                        size="small"
-                        icon={<PersonIcon />}
-                        label={`${vehicle.capacity}名`}
-                        variant="outlined"
-                      />
-                      <Chip
-                        size="small"
-                        label={vehicle.driver}
-                        variant="outlined"
-                      />
-                      {ishigakiMode && (
+                    </Box>
+                  </TableCell>
+                  <TableCell>
+                    <Chip
+                      label={vehicleTypes.find(t => t.value === vehicle.vehicleType)?.label || vehicle.vehicleType}
+                      size="small"
+                      variant="outlined"
+                    />
+                  </TableCell>
+                  <TableCell>
+                    <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                      <PersonIcon sx={{ mr: 1, color: 'text.secondary' }} />
+                      {vehicle.driver}
+                    </Box>
+                  </TableCell>
+                  <TableCell align="center">
+                    <Chip
+                      label={`${vehicle.capacity}名`}
+                      size="small"
+                      color="primary"
+                    />
+                  </TableCell>
+                  <TableCell>
+                    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+                      {vehicle.equipment.slice(0, 2).map((item, itemIndex) => (
                         <Chip
+                          key={itemIndex}
+                          label={item}
                           size="small"
-                          icon={<SpeedIcon />}
-                          label={`${vehicle.speedFactor || 1.0}x`}
+                          variant="outlined"
+                        />
+                      ))}
+                      {vehicle.equipment.length > 2 && (
+                        <Chip
+                          label={`+${vehicle.equipment.length - 2}`}
+                          size="small"
                           variant="outlined"
                         />
                       )}
                     </Box>
-                  </Box>
-                </Box>
-                <Box>
-                  <IconButton size="small" onClick={() => handleEdit(vehicle)}>
-                    <EditIcon />
-                  </IconButton>
-                  <IconButton 
-                    size="small" 
-                    onClick={() => handleDelete(vehicle.id)}
-                    color="error"
-                  >
-                    <DeleteIcon />
-                  </IconButton>
-                </Box>
-              </Box>
-              
-              {/* 装備品表示 */}
-              {vehicle.equipment && vehicle.equipment.length > 0 && (
-                <Box sx={{ mt: 1 }}>
-                  <Typography variant="caption" color="text.secondary">
-                    装備:
-                  </Typography>
-                  <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', mt: 0.5 }}>
-                    {vehicle.equipment.slice(0, 3).map((eq, index) => (
-                      <Chip
-                        key={index}
+                  </TableCell>
+                  <TableCell align="center">
+                    <Chip
+                      label={vehicle.speedFactor}
+                      size="small"
+                      color={vehicle.speedFactor > 1 ? 'success' : vehicle.speedFactor < 1 ? 'warning' : 'default'}
+                    />
+                  </TableCell>
+                  <TableCell align="center">
+                    <Tooltip title="編集">
+                      <IconButton
                         size="small"
-                        label={eq}
-                        variant="outlined"
-                        sx={{ fontSize: '0.7rem', height: 20 }}
-                      />
-                    ))}
-                    {vehicle.equipment.length > 3 && (
-                      <Chip
+                        onClick={() => handleOpenDialog(index)}
+                        color="primary"
+                      >
+                        <EditIcon />
+                      </IconButton>
+                    </Tooltip>
+                    <Tooltip title="削除">
+                      <IconButton
                         size="small"
-                        label={`+${vehicle.equipment.length - 3}`}
-                        variant="outlined"
-                        sx={{ fontSize: '0.7rem', height: 20 }}
-                      />
-                    )}
-                  </Box>
-                </Box>
-              )}
-            </CardContent>
-          </Card>
-        ))}
-      </Box>
-
-      {vehicles.length === 0 && (
-        <Alert severity="info" sx={{ mt: 2 }}>
-          車両を追加してください。石垣島では複数車両での効率的な運用が重要です。
-        </Alert>
+                        onClick={() => handleDeleteVehicle(index)}
+                        color="error"
+                      >
+                        <DeleteIcon />
+                      </IconButton>
+                    </Tooltip>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </TableContainer>
       )}
 
       {/* 車両追加・編集ダイアログ */}
-      <Dialog open={open} onClose={() => setOpen(false)} maxWidth="md" fullWidth>
+      <Dialog open={open} onClose={handleCloseDialog} maxWidth="md" fullWidth>
         <DialogTitle>
-          {editingVehicle ? '車両編集' : '車両追加'} 
-          {ishigakiMode && ' - 石垣島仕様'}
+          {editingIndex >= 0 ? '車両情報編集' : '車両追加'}
         </DialogTitle>
         <DialogContent>
           <Grid container spacing={2} sx={{ mt: 1 }}>
-            
             {/* 基本情報 */}
-            <Grid item xs={12} md={6}>
+            <Grid item xs={12} sm={6}>
               <TextField
                 fullWidth
                 label="車両名"
-                value={formData.name}
-                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                placeholder="例: ハイエース号"
+                value={currentVehicle.name}
+                onChange={(e) => handleInputChange('name', e.target.value)}
+                required
+                placeholder="例: レンタカー1号車"
               />
             </Grid>
-            
-            <Grid item xs={12} md={6}>
+            <Grid item xs={12} sm={6}>
               <TextField
                 fullWidth
-                label="運転手名"
-                value={formData.driver}
-                onChange={(e) => setFormData({ ...formData, driver: e.target.value })}
-                placeholder="例: 石垣太郎"
+                label="ドライバー名"
+                value={currentVehicle.driver}
+                onChange={(e) => handleInputChange('driver', e.target.value)}
+                required
               />
             </Grid>
 
-            {/* 車両タイプ */}
-            <Grid item xs={12}>
+            {/* 車両タイプと定員 */}
+            <Grid item xs={12} sm={6}>
               <FormControl fullWidth>
                 <InputLabel>車両タイプ</InputLabel>
                 <Select
-                  value={formData.vehicleType}
+                  value={currentVehicle.vehicleType}
                   onChange={(e) => handleVehicleTypeChange(e.target.value)}
                   label="車両タイプ"
                 >
-                  {Object.entries(ishigakiVehicleTypes).map(([key, type]) => (
-                    <MenuItem key={key} value={key}>
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                        {type.icon}
-                        <Box>
-                          <Typography variant="body2">{type.label}</Typography>
-                          <Typography variant="caption" color="text.secondary">
-                            {type.description}
-                          </Typography>
-                        </Box>
-                      </Box>
+                  {vehicleTypes.map((type) => (
+                    <MenuItem key={type.value} value={type.value}>
+                      {type.label} (標準定員: {type.capacity}名)
                     </MenuItem>
                   ))}
                 </Select>
               </FormControl>
             </Grid>
-
-            {/* 容量 */}
-            <Grid item xs={12} md={6}>
+            <Grid item xs={12} sm={6}>
               <TextField
                 fullWidth
-                type="number"
                 label="定員"
-                value={formData.capacity}
-                onChange={(e) => setFormData({ ...formData, capacity: parseInt(e.target.value) })}
-                inputProps={{ min: 1, max: 30 }}
+                type="number"
+                value={currentVehicle.capacity}
+                onChange={(e) => handleInputChange('capacity', parseInt(e.target.value) || 1)}
+                inputProps={{ min: 1, max: 50 }}
+                required
               />
             </Grid>
 
-            {/* 車両色選択 */}
-            <Grid item xs={12} md={6}>
-              <Typography variant="subtitle2" gutterBottom>
-                車両色
-              </Typography>
-              <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-                {colorPresets.map((color) => (
-                  <Box
-                    key={color}
-                    onClick={() => setFormData({ ...formData, color })}
-                    sx={{
-                      width: 32,
-                      height: 32,
-                      backgroundColor: color,
-                      borderRadius: 1,
-                      cursor: 'pointer',
-                      border: formData.color === color ? 3 : 1,
-                      borderColor: formData.color === color ? 'primary.main' : 'grey.300'
-                    }}
-                  />
-                ))}
-              </Box>
+            {/* 速度係数 */}
+            <Grid item xs={12} sm={6}>
+              <TextField
+                fullWidth
+                label="速度係数"
+                type="number"
+                value={currentVehicle.speedFactor}
+                onChange={(e) => handleInputChange('speedFactor', parseFloat(e.target.value) || 1.0)}
+                inputProps={{ min: 0.5, max: 2.0, step: 0.1 }}
+                helperText="1.0が標準速度、1.2で20%高速、0.8で20%低速"
+              />
+            </Grid>
+            <Grid item xs={12} sm={6}>
+              <TextField
+                fullWidth
+                label="ナンバープレート（任意）"
+                value={currentVehicle.plateNumber}
+                onChange={(e) => handleInputChange('plateNumber', e.target.value)}
+              />
             </Grid>
 
-            {/* 詳細設定 */}
-            {ishigakiMode && (
-              <Grid item xs={12}>
-                <FormControlLabel
-                  control={
-                    <Switch
-                      checked={showAdvanced}
-                      onChange={(e) => setShowAdvanced(e.target.checked)}
-                    />
-                  }
-                  label="詳細設定"
-                />
-              </Grid>
-            )}
-
-            {ishigakiMode && showAdvanced && (
-              <>
-                <Grid item xs={12} md={6}>
-                  <Typography variant="subtitle2" gutterBottom>
-                    速度係数: {formData.speedFactor}
-                  </Typography>
-                  <Slider
-                    value={formData.speedFactor}
-                    onChange={(e, value) => setFormData({ ...formData, speedFactor: value })}
-                    min={0.5}
-                    max={1.5}
-                    step={0.1}
-                    marks={[
-                      { value: 0.5, label: '0.5x' },
-                      { value: 1.0, label: '1.0x' },
-                      { value: 1.5, label: '1.5x' }
-                    ]}
-                  />
-                </Grid>
-
-                <Grid item xs={12} md={6}>
-                  <TextField
-                    fullWidth
-                    type="number"
-                    label="燃費 (km/L)"
-                    value={formData.fuelEfficiency}
-                    onChange={(e) => setFormData({ ...formData, fuelEfficiency: parseFloat(e.target.value) })}
-                    inputProps={{ min: 1, max: 30, step: 0.1 }}
-                  />
-                </Grid>
-              </>
-            )}
-
-            {/* 装備品選択 */}
+            {/* 装備選択 */}
             <Grid item xs={12}>
-              <Typography variant="subtitle2" gutterBottom>
-                <EquipmentIcon sx={{ mr: 1, verticalAlign: 'middle' }} />
-                装備品 (石垣島標準装備)
+              <Typography variant="subtitle1" gutterBottom>
+                装備・設備
               </Typography>
-              <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
-                {ishigakiEquipment.map((equipment) => (
-                  <Chip
-                    key={equipment}
-                    label={equipment}
-                    onClick={() => handleEquipmentToggle(equipment)}
-                    color={formData.equipment.includes(equipment) ? 'primary' : 'default'}
-                    variant={formData.equipment.includes(equipment) ? 'filled' : 'outlined'}
-                    size="small"
-                    sx={{ mb: 0.5 }}
-                  />
+              <Grid container spacing={1}>
+                {equipmentOptions.map((equipment) => (
+                  <Grid item xs={6} sm={4} md={3} key={equipment}>
+                    <FormControlLabel
+                      control={
+                        <Checkbox
+                          checked={currentVehicle.equipment.includes(equipment)}
+                          onChange={() => handleEquipmentChange(equipment)}
+                        />
+                      }
+                      label={equipment}
+                    />
+                  </Grid>
                 ))}
-              </Box>
+              </Grid>
+            </Grid>
+
+            {/* 備考 */}
+            <Grid item xs={12}>
+              <TextField
+                fullWidth
+                label="備考・注意事項"
+                multiline
+                rows={2}
+                value={currentVehicle.notes}
+                onChange={(e) => handleInputChange('notes', e.target.value)}
+                placeholder="車両の特徴、注意事項など"
+              />
             </Grid>
           </Grid>
         </DialogContent>
-        
         <DialogActions>
-          <Button onClick={() => setOpen(false)}>
-            キャンセル
-          </Button>
-          <Button 
-            onClick={handleSave} 
-            variant="contained"
-            disabled={!formData.name || !formData.driver}
-          >
-            {editingVehicle ? '更新' : '追加'}
+          <Button onClick={handleCloseDialog}>キャンセル</Button>
+          <Button onClick={handleSaveVehicle} variant="contained">
+            {editingIndex >= 0 ? '更新' : '追加'}
           </Button>
         </DialogActions>
       </Dialog>
