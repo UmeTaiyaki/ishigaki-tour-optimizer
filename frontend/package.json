@@ -1,47 +1,45 @@
 {
-  "name": "ishigaki-tour-frontend",
+  "name": "ishigaki-tour-management",
   "version": "2.0.0",
-  "description": "石垣島ツアー送迎管理システム - フロントエンド",
   "private": true,
   "dependencies": {
     "@emotion/react": "^11.11.1",
     "@emotion/styled": "^11.11.0",
-    "@mui/icons-material": "^5.14.16",
-    "@mui/material": "^5.14.17",
+    "@mui/icons-material": "^5.14.19",
+    "@mui/lab": "^5.0.0-alpha.155",
+    "@mui/material": "^5.14.19",
+    "@mui/x-charts": "^6.18.1",
     "@mui/x-date-pickers": "^6.18.1",
     "@testing-library/jest-dom": "^5.17.0",
     "@testing-library/react": "^13.4.0",
     "@testing-library/user-event": "^13.5.0",
-    "axios": "^1.6.0",
+    "axios": "^1.9.0",
     "date-fns": "^2.30.0",
-    "leaflet": "^1.9.4",
+    "file-saver": "^2.0.5",
+    "html2canvas": "^1.4.1",
+    "jspdf": "^2.5.2",
+    "jspdf-autotable": "^3.8.4",
+    "lodash": "^4.17.21",
+    "qrcode": "^1.5.4",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
-    "react-leaflet": "^4.2.1",
-    "react-router-dom": "^6.17.0",
+    "react-qr-code": "^2.0.15",
     "react-scripts": "5.0.1",
-    "recharts": "^2.8.0",
+    "react-to-print": "^2.15.1",
+    "recharts": "^2.15.3",
     "web-vitals": "^2.1.4"
   },
   "scripts": {
     "start": "react-scripts start",
     "build": "react-scripts build",
     "test": "react-scripts test",
-    "eject": "react-scripts eject",
-    "lint": "eslint src --ext .js,.jsx,.ts,.tsx",
-    "lint:fix": "eslint src --ext .js,.jsx,.ts,.tsx --fix",
-    "format": "prettier --write src/**/*.{js,jsx,ts,tsx,json,css,md}"
+    "eject": "react-scripts eject"
   },
   "eslintConfig": {
     "extends": [
       "react-app",
       "react-app/jest"
-    ],
-    "rules": {
-      "no-unused-vars": "warn",
-      "no-console": "off",
-      "react-hooks/exhaustive-deps": "warn"
-    }
+    ]
   },
   "browserslist": {
     "production": [
@@ -56,12 +54,14 @@
     ]
   },
   "devDependencies": {
-    "@types/leaflet": "^1.9.8",
-    "eslint": "^8.53.0",
-    "eslint-plugin-react": "^7.33.2",
-    "eslint-plugin-react-hooks": "^4.6.0",
-    "prettier": "^3.0.3"
+    "@types/file-saver": "^2.0.5",
+    "@types/lodash": "^4.14.200",
+    "@types/qrcode": "^1.5.2"
   },
-  "proxy": "http://localhost:8000",
-  "homepage": "."
+  "overrides": {
+    "react-spring": {
+      "react": "$react",
+      "react-dom": "$react-dom"
+    }
+  }
 }
