@@ -1,10 +1,10 @@
-// App.js - 石垣島ツアー管理システム v2.0 エラーハンドリング強化版
+// App.js - 石垣島ツアー管理システム v2.0 気象情報統合版
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   ThemeProvider, createTheme, CssBaseline, Box, AppBar, Toolbar,
   Typography, IconButton, Drawer, List, ListItem, ListItemIcon,
   ListItemText, Divider, Alert, Snackbar, Chip, Badge, Button,
-  CircularProgress, Container, useMediaQuery
+  CircularProgress, Container, useMediaQuery, Stack
 } from '@mui/material';
 import {
   Menu as MenuIcon,
@@ -14,6 +14,8 @@ import {
   Schedule as ScheduleIcon,
   Assessment as StatisticsIcon,
   Settings as SettingsIcon,
+  Map as MapIcon,
+  WbSunny as WeatherIcon,
   Notifications as NotificationsIcon,
   Close as CloseIcon,
   Refresh as RefreshIcon
@@ -26,6 +28,8 @@ import RouteOptimizer from './components/RouteOptimizer';
 import FinalSchedule from './components/FinalSchedule';
 import Statistics from './components/Statistics';
 import Settings from './components/Settings';
+import GoogleMapIntegration from './components/GoogleMapIntegration';
+import EnvironmentalDataDisplay from './components/EnvironmentalDataDisplay';
 
 // APIクライアント
 import * as api from './api/client';
@@ -47,33 +51,18 @@ const createAppTheme = (prefersDarkMode) => createTheme({
     background: { 
       default: prefersDarkMode ? '#121212' : '#f5f5f5',
       paper: prefersDarkMode ? '#1e1e1e' : '#ffffff'
-    },
-    success: { main: '#4caf50' },
-    warning: { main: '#ff9800' },
-    error: { main: '#f44336' }
+    }
   },
   typography: {
+    fontFamily: '"Roboto", "Helvetica", "Arial", sans-serif',
     h4: { fontWeight: 600 },
-    h5: { fontWeight: 600 },
-    h6: { fontWeight: 500 },
-    fontFamily: '"Roboto", "Helvetica", "Arial", "Noto Sans JP", sans-serif'
+    h6: { fontWeight: 500 }
   },
+  shape: { borderRadius: 8 },
   components: {
     MuiCard: {
       styleOverrides: {
-        root: {
-          borderRadius: 12,
-          boxShadow: '0 2px 8px rgba(0,0,0,0.1)'
-        }
-      }
-    },
-    MuiButton: {
-      styleOverrides: {
-        root: {
-          borderRadius: 8,
-          textTransform: 'none',
-          fontWeight: 500
-        }
+        root: { boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }
       }
     }
   }
@@ -83,493 +72,625 @@ const App = () => {
   // テーマ設定
   const prefersDarkMode = useMediaQuery('(prefers-color-scheme: dark)');
   const theme = createAppTheme(prefersDarkMode);
+  const isMobile = useMediaQuery(theme.breakpoints.down('md'));
 
-  // ステート管理
+  // UI状態管理
+  const [drawerOpen, setDrawerOpen] = useState(!isMobile);
   const [currentView, setCurrentView] = useState('dashboard');
-  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [alert, setAlert] = useState({ open: false, message: '', severity: 'info' });
+
+  // データ状態管理
   const [guests, setGuests] = useState([]);
   const [vehicles, setVehicles] = useState([]);
   const [optimizedRoutes, setOptimizedRoutes] = useState([]);
+  const [environmentalData, setEnvironmentalData] = useState(null);
+  const [statistics, setStatistics] = useState(null);
+  const [systemStatus, setSystemStatus] = useState({ status: 'unknown', last_checked: null });
+  const [activityLocation, setActivityLocation] = useState(null);
+  const [settings, setSettings] = useState({
+    notifications: true,
+    autoOptimize: false,
+    mapProvider: 'Google Maps',
+    updateInterval: 30,
+    weatherIntegration: true // 気象統合設定
+  });
+
+  // ツアーデータ
   const [tourData, setTourData] = useState({
     date: new Date().toISOString().split('T')[0],
     activityType: 'シュノーケリング',
-    startTime: '09:00',
-    activityLocation: '川平湾'
+    startTime: '10:00',
+    activityLocation: null,
+    departureLocation: { lat: 24.3336, lng: 124.1543 } // 石垣市役所
   });
-  const [environmentalData, setEnvironmentalData] = useState(null);
-  const [systemStatus, setSystemStatus] = useState({ status: 'checking' });
-  const [isOptimizing, setIsOptimizing] = useState(false);
-  const [notification, setNotification] = useState({ 
-    open: false, 
-    message: '', 
-    severity: 'info' 
-  });
-  const [loading, setLoading] = useState(true);
-  const [lastDataUpdate, setLastDataUpdate] = useState(null);
 
-  // 安全な配列操作のためのヘルパー関数
-  const safeArray = (value) => Array.isArray(value) ? value : [];
-  const safeObject = (value) => (value && typeof value === 'object') ? value : {};
+  // サイドバーメニュー項目
+  const menuItems = [
+    { id: 'dashboard', label: 'ダッシュボード', icon: DashboardIcon },
+    { id: 'weather', label: '気象情報', icon: WeatherIcon }, // 気象情報追加
+    { id: 'guests', label: 'ゲスト管理', icon: PeopleIcon },
+    { id: 'vehicles', label: '車両管理', icon: CarIcon },
+    { id: 'map', label: '地図表示', icon: MapIcon },
+    { id: 'optimizer', label: 'ルート最適化', icon: ScheduleIcon },
+    { id: 'schedule', label: '最終スケジュール', icon: ScheduleIcon },
+    { id: 'statistics', label: '統計・分析', icon: StatisticsIcon },
+    { id: 'settings', label: '設定', icon: SettingsIcon }
+  ];
 
   // 初期化
   useEffect(() => {
     initializeApp();
   }, []);
 
-  // 定期的なデータ更新
+  // 気象データ定期更新（30分ごと）
   useEffect(() => {
-    const interval = setInterval(() => {
-      if (currentView === 'dashboard') {
-        loadEnvironmentalData();
-      }
-    }, 300000); // 5分ごと
+    if (settings.weatherIntegration) {
+      const interval = setInterval(() => {
+        loadEnvironmentalData(false); // サイレント更新
+      }, 30 * 60 * 1000);
 
-    return () => clearInterval(interval);
-  }, [currentView]);
+      return () => clearInterval(interval);
+    }
+  }, [settings.weatherIntegration, tourData.date]);
 
   const initializeApp = async () => {
     setLoading(true);
     try {
-      await loadInitialData();
-      showNotification('システムが正常に起動しました', 'success');
+      // システムステータス確認
+      const status = await api.getSystemStatus();
+      setSystemStatus(status);
+
+      // 設定読み込み
+      await loadSettings();
+
+      // サンプルデータ初期化
+      initializeSampleData();
+
+      // 環境データ読み込み
+      if (settings.weatherIntegration) {
+        await loadEnvironmentalData();
+      }
+
+      showAlert('アプリケーションが正常に初期化されました', 'success');
     } catch (error) {
-      console.error('Initialization error:', error);
-      showNotification('初期化中にエラーが発生しました', 'error');
+      console.error('初期化エラー:', error);
+      showAlert('初期化中にエラーが発生しました', 'error');
     } finally {
       setLoading(false);
     }
   };
 
-  const loadInitialData = async () => {
+  const loadSettings = async () => {
     try {
-      const [envData, status, batchData] = await Promise.allSettled([
-        api.getEnvironmentalData(tourData.date),
-        api.getSystemStatus(),
-        api.getBatchData(tourData.date)
-      ]);
-
-      if (envData.status === 'fulfilled' && envData.value) {
-        setEnvironmentalData(safeObject(envData.value));
-      }
-
-      if (status.status === 'fulfilled' && status.value) {
-        setSystemStatus(safeObject(status.value));
-      }
-
-      setLastDataUpdate(new Date());
+      const settingsData = await api.getSettings();
+      setSettings(prev => ({ ...prev, ...settingsData }));
     } catch (error) {
-      console.error('Initial data loading error:', error);
+      console.error('設定読み込みエラー:', error);
     }
   };
 
-  const loadEnvironmentalData = useCallback(async () => {
+  const loadEnvironmentalData = async (showLoadingState = true) => {
     try {
-      const data = await api.getEnvironmentalData(tourData.date);
-      setEnvironmentalData(safeObject(data));
-      setLastDataUpdate(new Date());
+      if (showLoadingState) setLoading(true);
+      
+      console.log('🌤️ 環境データを読み込み中...');
+      const envData = await api.getEnvironmentalData(tourData.date);
+      setEnvironmentalData(envData);
+      
+      console.log('✅ 環境データ読み込み完了:', envData);
+      
+      if (showLoadingState) {
+        showAlert(`気象データを更新しました (${envData.weather}, ${envData.temperature}°C)`, 'info');
+      }
     } catch (error) {
-      console.error('Environmental data loading error:', error);
+      console.error('❌ 環境データ読み込みエラー:', error);
+      if (showLoadingState) {
+        showAlert('気象データの取得に失敗しました', 'warning');
+      }
+    } finally {
+      if (showLoadingState) setLoading(false);
     }
-  }, [tourData.date]);
+  };
 
-  // ルート最適化（エラーハンドリング強化）
-  const handleOptimize = async () => {
-    // 入力検証
-    if (!Array.isArray(guests) || guests.length === 0) {
-      showNotification('ゲストを追加してください', 'warning');
-      return;
-    }
+  const initializeSampleData = () => {
+    // サンプルゲストデータ
+    const sampleGuests = [
+      {
+        id: '1',
+        name: '田中太郎',
+        hotel: 'ANAインターコンチネンタル石垣リゾート',
+        people: 2,
+        location: { lat: 24.3214, lng: 124.1397 },
+        preferredTime: { start: '09:00', end: '10:00' }
+      },
+      {
+        id: '2',
+        name: '佐藤花子',
+        hotel: 'フサキビーチリゾート',
+        people: 3,
+        location: { lat: 24.3431, lng: 124.1142 },
+        preferredTime: { start: '09:30', end: '10:30' }
+      }
+    ];
 
-    if (!Array.isArray(vehicles) || vehicles.length === 0) {
-      showNotification('車両を追加してください', 'warning');
-      return;
-    }
+    // サンプル車両データ
+    const sampleVehicles = [
+      {
+        id: '1',
+        name: 'ワゴン1号',
+        capacity: 8,
+        driver: '山田ドライバー',
+        status: 'available',
+        location: { lat: 24.3336, lng: 124.1543 }
+      },
+      {
+        id: '2',
+        name: 'ワゴン2号',
+        capacity: 10,
+        driver: '鈴木ドライバー',
+        status: 'available',
+        location: { lat: 24.3380, lng: 124.1570 }
+      }
+    ];
 
-    // ゲストデータの検証
-    const invalidGuests = guests.filter(guest => 
-      !guest || !guest.name || !guest.hotel_name || !guest.people
-    );
+    setGuests(sampleGuests);
+    setVehicles(sampleVehicles);
     
-    if (invalidGuests.length > 0) {
-      showNotification('一部のゲスト情報が不完全です', 'warning');
+    // 初期アクティビティ地点（川平湾）
+    setActivityLocation({ lat: 24.4167, lng: 124.1556 });
+    setTourData(prev => ({
+      ...prev,
+      activityLocation: { lat: 24.4167, lng: 124.1556 }
+    }));
+  };
+
+  // アラート表示
+  const showAlert = (message, severity = 'info') => {
+    setAlert({ open: true, message, severity });
+  };
+
+  const handleCloseAlert = () => {
+    setAlert(prev => ({ ...prev, open: false }));
+  };
+
+  // ルート最適化実行
+  const handleOptimizeRoute = async () => {
+    if (guests.length === 0 || vehicles.length === 0) {
+      showAlert('ゲストと車両を登録してください', 'warning');
       return;
     }
 
-    // 車両データの検証
-    const invalidVehicles = vehicles.filter(vehicle => 
-      !vehicle || !vehicle.name || !vehicle.capacity
-    );
-    
-    if (invalidVehicles.length > 0) {
-      showNotification('一部の車両情報が不完全です', 'warning');
+    if (!activityLocation) {
+      showAlert('アクティビティ地点を設定してください', 'warning');
       return;
     }
 
-    setIsOptimizing(true);
+    setLoading(true);
     try {
       const optimizationData = {
-        ...safeObject(tourData),
-        guests: safeArray(guests),
-        vehicles: safeArray(vehicles)
+        ...tourData,
+        activityLocation,
+        guests,
+        vehicles
       };
 
-      console.log('Optimization request:', optimizationData);
-
       const result = await api.optimizeRoute(optimizationData);
+      setOptimizedRoutes(result.routes || []);
       
-      console.log('Optimization result:', result);
+      // 統計データも更新
+      const stats = await api.getStatistics();
+      setStatistics(stats);
 
-      if (result && result.success) {
-        const routes = safeArray(result.routes);
-        setOptimizedRoutes(routes);
-        showNotification(`${routes.length}件のルートを最適化しました`, 'success');
-      } else {
-        const errorMessage = result?.message || '最適化に失敗しました';
-        showNotification(errorMessage, 'error');
-        setOptimizedRoutes([]);
-      }
+      showAlert('ルート最適化が完了しました！', 'success');
+      setCurrentView('schedule');
     } catch (error) {
-      console.error('Optimization error:', error);
-      showNotification(`最適化中にエラーが発生しました: ${error.message}`, 'error');
-      setOptimizedRoutes([]);
+      console.error('最適化エラー:', error);
+      showAlert('ルート最適化に失敗しました', 'error');
     } finally {
-      setIsOptimizing(false);
+      setLoading(false);
     }
   };
 
-  // 通知表示
-  const showNotification = (message, severity = 'info') => {
-    setNotification({ open: true, message, severity });
+  // ゲスト管理関数
+  const handleAddGuest = (guestData) => {
+    const newGuest = {
+      ...guestData,
+      id: Date.now().toString(),
+      location: guestData.location || { lat: 24.3336, lng: 124.1543 }
+    };
+    setGuests(prev => [...prev, newGuest]);
+    showAlert(`${guestData.name}さんを追加しました`, 'success');
   };
 
-  // 通知クローズ
-  const handleCloseNotification = () => {
-    setNotification(prev => ({ ...prev, open: false }));
+  const handleUpdateGuest = (guestId, updatedData) => {
+    setGuests(prev => prev.map(guest => 
+      guest.id === guestId ? { ...guest, ...updatedData } : guest
+    ));
+    showAlert('ゲスト情報を更新しました', 'success');
   };
 
-  // ゲスト更新（エラーハンドリング付き）
-  const handleGuestsUpdate = useCallback((newGuests) => {
+  const handleDeleteGuest = (guestId) => {
+    setGuests(prev => prev.filter(guest => guest.id !== guestId));
+    showAlert('ゲストを削除しました', 'info');
+  };
+
+  // 車両管理関数
+  const handleAddVehicle = (vehicleData) => {
+    const newVehicle = {
+      ...vehicleData,
+      id: Date.now().toString(),
+      status: 'available',
+      location: vehicleData.location || { lat: 24.3336, lng: 124.1543 }
+    };
+    setVehicles(prev => [...prev, newVehicle]);
+    showAlert(`${vehicleData.name}を追加しました`, 'success');
+  };
+
+  const handleUpdateVehicle = (vehicleId, updatedData) => {
+    setVehicles(prev => prev.map(vehicle => 
+      vehicle.id === vehicleId ? { ...vehicle, ...updatedData } : vehicle
+    ));
+    showAlert('車両情報を更新しました', 'success');
+  };
+
+  const handleDeleteVehicle = (vehicleId) => {
+    setVehicles(prev => prev.filter(vehicle => vehicle.id !== vehicleId));
+    showAlert('車両を削除しました', 'info');
+  };
+
+  // 地図関連のハンドラー
+  const handleActivityLocationUpdate = (location) => {
+    setActivityLocation(location);
+    setTourData(prev => ({ ...prev, activityLocation: location }));
+    showAlert('アクティビティ地点を更新しました', 'success');
+  };
+
+  const handleGuestLocationUpdate = (guestId, location) => {
+    handleUpdateGuest(guestId, { location });
+  };
+
+  const handleVehicleLocationUpdate = (vehicleId, location) => {
+    handleUpdateVehicle(vehicleId, { location });
+  };
+
+  // 環境データ更新ハンドラー
+  const handleEnvironmentalDataUpdate = (data) => {
+    setEnvironmentalData(data);
+  };
+
+  // 設定更新
+  const handleSettingsUpdate = async (newSettings) => {
     try {
-      const safeGuests = safeArray(newGuests);
-      setGuests(safeGuests);
+      await api.updateSettings(newSettings);
+      setSettings(prev => ({ ...prev, ...newSettings }));
+      showAlert('設定を保存しました', 'success');
       
-      // 最適化結果をクリア
-      if (Array.isArray(optimizedRoutes) && optimizedRoutes.length > 0) {
-        setOptimizedRoutes([]);
-        showNotification('ゲスト情報が更新されました。再最適化してください。', 'info');
+      // 気象統合設定が変更された場合
+      if (newSettings.weatherIntegration !== settings.weatherIntegration) {
+        if (newSettings.weatherIntegration) {
+          loadEnvironmentalData();
+        }
       }
     } catch (error) {
-      console.error('Guest update error:', error);
-      showNotification('ゲスト情報の更新に失敗しました', 'error');
-    }
-  }, [optimizedRoutes]);
-
-  // 車両更新（エラーハンドリング付き）
-  const handleVehiclesUpdate = useCallback((newVehicles) => {
-    try {
-      const safeVehicles = safeArray(newVehicles);
-      setVehicles(safeVehicles);
-      
-      // 最適化結果をクリア
-      if (Array.isArray(optimizedRoutes) && optimizedRoutes.length > 0) {
-        setOptimizedRoutes([]);
-        showNotification('車両情報が更新されました。再最適化してください。', 'info');
-      }
-    } catch (error) {
-      console.error('Vehicle update error:', error);
-      showNotification('車両情報の更新に失敗しました', 'error');
-    }
-  }, [optimizedRoutes]);
-
-  // ツアーデータ更新（エラーハンドリング付き）
-  const handleTourDataUpdate = useCallback((newTourData) => {
-    try {
-      const safeTourData = safeObject(newTourData);
-      setTourData(safeTourData);
-      
-      // 日付が変更された場合は環境データを再取得
-      if (safeTourData.date !== tourData.date) {
-        loadEnvironmentalData();
-      }
-    } catch (error) {
-      console.error('Tour data update error:', error);
-      showNotification('ツアー情報の更新に失敗しました', 'error');
-    }
-  }, [tourData.date, loadEnvironmentalData]);
-
-  // メニュー項目
-  const menuItems = [
-    { id: 'dashboard', label: 'ダッシュボード', icon: <DashboardIcon /> },
-    { id: 'guests', label: 'ゲスト管理', icon: <PeopleIcon />, badge: guests.length },
-    { id: 'vehicles', label: '車両管理', icon: <CarIcon />, badge: vehicles.length },
-    { id: 'optimizer', label: 'ルート最適化', icon: <ScheduleIcon /> },
-    { id: 'schedule', label: '最終スケジュール', icon: <ScheduleIcon />, badge: optimizedRoutes.length },
-    { id: 'statistics', label: '統計・分析', icon: <StatisticsIcon /> },
-    { id: 'settings', label: '設定', icon: <SettingsIcon /> }
-  ];
-
-  // システムステータス色取得
-  const getStatusColor = (status) => {
-    switch (status) {
-      case 'online': return 'success';
-      case 'offline': return 'error';
-      case 'checking': return 'warning';
-      default: return 'default';
+      console.error('設定保存エラー:', error);
+      showAlert('設定の保存に失敗しました', 'error');
     }
   };
 
-  // メインコンテンツ表示
-  const renderMainContent = () => {
+  // データエクスポート
+  const handleExportSchedule = async () => {
+    if (optimizedRoutes.length === 0) {
+      showAlert('エクスポートするスケジュールがありません', 'warning');
+      return;
+    }
+
+    try {
+      setLoading(true);
+      const exportData = {
+        date: tourData.date,
+        routes: optimizedRoutes,
+        guests,
+        vehicles,
+        environmentalData // 気象データも含める
+      };
+      
+      await api.exportSchedule(exportData);
+      showAlert('スケジュールをエクスポートしました', 'success');
+    } catch (error) {
+      console.error('エクスポートエラー:', error);
+      showAlert('エクスポートに失敗しました', 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // システム状態確認
+  const refreshSystemStatus = async () => {
+    try {
+      const status = await api.getSystemStatus();
+      setSystemStatus(status);
+      showAlert('システム状態を更新しました', 'info');
+    } catch (error) {
+      console.error('ステータス更新エラー:', error);
+      showAlert('システム状態の更新に失敗しました', 'error');
+    }
+  };
+
+  // 日付変更ハンドラー
+  const handleDateChange = (newDate) => {
+    setTourData(prev => ({ ...prev, date: newDate }));
+    if (settings.weatherIntegration) {
+      loadEnvironmentalData();
+    }
+  };
+
+  // 気象データ手動更新
+  const handleWeatherRefresh = () => {
+    loadEnvironmentalData(true);
+  };
+
+  // ビューレンダリング
+  const renderCurrentView = () => {
     const commonProps = {
-      guests: safeArray(guests),
-      vehicles: safeArray(vehicles),
-      tourData: safeObject(tourData),
-      environmentalData: safeObject(environmentalData),
-      onGuestsUpdate: handleGuestsUpdate,
-      onVehiclesUpdate: handleVehiclesUpdate,
-      onTourDataUpdate: handleTourDataUpdate
+      loading,
+      onAlert: showAlert,
+      environmentalData
     };
 
-    try {
-      switch (currentView) {
-        case 'guests':
-          return <GuestManager {...commonProps} />;
-        case 'vehicles':
-          return <VehicleManager {...commonProps} />;
-        case 'optimizer':
-          return (
-            <RouteOptimizer
-              {...commonProps}
-              optimizedRoutes={safeArray(optimizedRoutes)}
-              isLoading={isOptimizing}
-              onOptimize={handleOptimize}
-            />
-          );
-        case 'schedule':
-          return (
-            <FinalSchedule 
-              routes={safeArray(optimizedRoutes)} 
-              tourData={safeObject(tourData)}
-              guests={safeArray(guests)}
-              vehicles={safeArray(vehicles)}
-            />
-          );
-        case 'statistics':
-          return <Statistics />;
-        case 'settings':
-          return <Settings onSystemUpdate={setSystemStatus} />;
-        default:
-          return (
-            <Container maxWidth="lg">
-              <Box sx={{ py: 4 }}>
-                <Typography variant="h4" gutterBottom sx={{ mb: 4 }}>
-                  🏝️ 石垣島ツアー管理システム v2.0
-                </Typography>
-                
-                {/* ステータスカード */}
-                <Box sx={{ display: 'flex', gap: 2, mb: 4, flexWrap: 'wrap' }}>
-                  <Chip 
-                    label={`ゲスト: ${guests.length}組 (${guests.reduce((sum, g) => sum + (g?.people || 0), 0)}名)`} 
-                    color="primary" 
-                    variant="outlined"
-                    icon={<PeopleIcon />}
-                  />
-                  <Chip 
-                    label={`車両: ${vehicles.length}台 (定員${vehicles.reduce((sum, v) => sum + (v?.capacity || 0), 0)}名)`} 
-                    color="secondary" 
-                    variant="outlined"
-                    icon={<CarIcon />}
-                  />
-                  <Chip 
-                    label={`システム: ${systemStatus?.status || 'unknown'}`} 
-                    color={getStatusColor(systemStatus?.status)}
-                    icon={systemStatus?.status === 'checking' ? <CircularProgress size={16} /> : undefined}
-                  />
-                  {optimizedRoutes.length > 0 && (
-                    <Chip 
-                      label={`最適化済み: ${optimizedRoutes.length}ルート`} 
-                      color="success"
-                      icon={<ScheduleIcon />}
-                    />
-                  )}
-                </Box>
-
-                {/* 環境情報 */}
-                {environmentalData && (
-                  <Alert 
-                    severity="info" 
-                    sx={{ mb: 3 }}
-                    action={
-                      <Button 
-                        color="inherit" 
-                        size="small" 
-                        onClick={loadEnvironmentalData}
-                        startIcon={<RefreshIcon />}
-                      >
-                        更新
-                      </Button>
-                    }
-                  >
-                    <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', alignItems: 'center' }}>
-                      <span>📅 {tourData?.date || 'N/A'}</span>
-                      <span>🌤️ {environmentalData?.weather || '不明'}</span>
-                      <span>🌡️ {environmentalData?.temperature || '--'}°C</span>
-                      <span>🌊 潮汐: {environmentalData?.tide_level || '--'}m</span>
-                      <span>💨 風速: {environmentalData?.wind_speed || '--'}m/s</span>
-                      {lastDataUpdate && (
-                        <span style={{ fontSize: '0.8em', opacity: 0.7 }}>
-                          (更新: {lastDataUpdate.toLocaleTimeString()})
-                        </span>
-                      )}
-                    </Box>
-                  </Alert>
+    switch (currentView) {
+      case 'dashboard':
+        return (
+          <Box>
+            <Typography variant="h4" gutterBottom>
+              🏝️ 石垣島ツアー管理ダッシュボード
+            </Typography>
+            
+            <Stack spacing={3}>
+              {/* システム状態カード */}
+              <Alert 
+                severity={systemStatus.status === 'online' ? 'success' : 'error'}
+                action={
+                  <IconButton onClick={refreshSystemStatus} size="small">
+                    <RefreshIcon />
+                  </IconButton>
+                }
+              >
+                システム状態: {systemStatus.status === 'online' ? 'オンライン' : 'オフライン'}
+                {systemStatus.last_checked && (
+                  <Typography variant="caption" display="block">
+                    最終確認: {new Date(systemStatus.last_checked).toLocaleString()}
+                  </Typography>
                 )}
+              </Alert>
 
-                {/* クイックアクション */}
-                <Box sx={{ display: 'grid', gap: 2, gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))' }}>
-                  <Button
-                    variant="outlined"
-                    size="large"
-                    startIcon={<PeopleIcon />}
-                    onClick={() => setCurrentView('guests')}
-                    sx={{ p: 2 }}
-                  >
-                    ゲスト管理
-                  </Button>
-                  <Button
-                    variant="outlined"
-                    size="large"
-                    startIcon={<CarIcon />}
-                    onClick={() => setCurrentView('vehicles')}
-                    sx={{ p: 2 }}
-                  >
-                    車両管理
-                  </Button>
-                  <Button
-                    variant="contained"
-                    size="large"
-                    startIcon={isOptimizing ? <CircularProgress size={20} /> : <ScheduleIcon />}
-                    onClick={() => setCurrentView('optimizer')}
-                    disabled={guests.length === 0 || vehicles.length === 0}
-                    sx={{ p: 2 }}
-                  >
-                    ルート最適化
-                  </Button>
-                  <Button
-                    variant="outlined"
-                    size="large"
-                    startIcon={<StatisticsIcon />}
-                    onClick={() => setCurrentView('statistics')}
-                    sx={{ p: 2 }}
-                  >
-                    統計・分析
-                  </Button>
-                </Box>
+              {/* 気象情報サマリー */}
+              {environmentalData && (
+                <Alert 
+                  severity="info"
+                  action={
+                    <IconButton onClick={handleWeatherRefresh} size="small">
+                      <RefreshIcon />
+                    </IconButton>
+                  }
+                >
+                  🌤️ {environmentalData.weather} {environmentalData.temperature}°C | 
+                  風速: {environmentalData.wind_speed}km/h | 
+                  視界: {environmentalData.visibility === 'excellent' ? '最良' : '良好'}
+                  <Typography variant="caption" display="block">
+                    データソース: {environmentalData.source} | 
+                    更新: {new Date(environmentalData.last_updated).toLocaleTimeString()}
+                  </Typography>
+                </Alert>
+              )}
 
-                {/* 使用開始のヒント */}
-                {guests.length === 0 && vehicles.length === 0 && (
-                  <Alert severity="info" sx={{ mt: 4 }}>
-                    <Typography variant="h6" gutterBottom>
-                      🚀 使用を開始するには
-                    </Typography>
-                    <Typography variant="body2">
-                      1. まず「ゲスト管理」でお客様情報を登録してください<br/>
-                      2. 次に「車両管理」で利用可能な車両を登録してください<br/>
-                      3. 「ルート最適化」で効率的な送迎ルートを計算できます
-                    </Typography>
-                  </Alert>
+              {/* 統計サマリー */}
+              <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
+                <Chip 
+                  icon={<PeopleIcon />} 
+                  label={`ゲスト: ${guests.length}組 (${guests.reduce((sum, g) => sum + g.people, 0)}名)`} 
+                  color="primary" 
+                />
+                <Chip 
+                  icon={<CarIcon />} 
+                  label={`車両: ${vehicles.length}台`} 
+                  color="secondary" 
+                />
+                <Chip 
+                  icon={<ScheduleIcon />} 
+                  label={`最適化済み: ${optimizedRoutes.length}ルート`} 
+                  color={optimizedRoutes.length > 0 ? 'success' : 'default'}
+                />
+                {environmentalData && (
+                  <Chip 
+                    icon={<WeatherIcon />} 
+                    label={`気象: ${environmentalData.weather}`} 
+                    color="info"
+                    variant="outlined"
+                  />
                 )}
               </Box>
-            </Container>
-          );
-      }
-    } catch (error) {
-      console.error('Render error:', error);
-      return (
-        <Container maxWidth="lg">
-          <Alert severity="error" sx={{ mt: 4 }}>
-            <Typography variant="h6">表示エラー</Typography>
-            <Typography>コンポーネントの表示中にエラーが発生しました。ページをリロードしてください。</Typography>
-          </Alert>
-        </Container>
-      );
+
+              {/* クイックアクション */}
+              <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
+                <Button 
+                  variant="contained" 
+                  onClick={() => setCurrentView('optimizer')}
+                  disabled={guests.length === 0 || vehicles.length === 0}
+                >
+                  ルート最適化実行
+                </Button>
+                <Button 
+                  variant="outlined" 
+                  onClick={() => setCurrentView('map')}
+                >
+                  地図で確認
+                </Button>
+                <Button 
+                  variant="outlined" 
+                  onClick={() => setCurrentView('weather')}
+                >
+                  気象情報詳細
+                </Button>
+                <Button 
+                  variant="outlined" 
+                  onClick={handleExportSchedule}
+                  disabled={optimizedRoutes.length === 0}
+                >
+                  スケジュールエクスポート
+                </Button>
+              </Box>
+            </Stack>
+          </Box>
+        );
+
+      case 'weather':
+        return (
+          <Box>
+            <Typography variant="h4" gutterBottom>
+              🌤️ 石垣島 気象情報
+            </Typography>
+            <EnvironmentalDataDisplay
+              date={tourData.date}
+              onDataUpdate={handleEnvironmentalDataUpdate}
+              showDetails={true}
+              compact={false}
+            />
+          </Box>
+        );
+
+      case 'guests':
+        return (
+          <GuestManager
+            guests={guests}
+            onAddGuest={handleAddGuest}
+            onUpdateGuest={handleUpdateGuest}
+            onDeleteGuest={handleDeleteGuest}
+            {...commonProps}
+          />
+        );
+
+      case 'vehicles':
+        return (
+          <VehicleManager
+            vehicles={vehicles}
+            onAddVehicle={handleAddVehicle}
+            onUpdateVehicle={handleUpdateVehicle}
+            onDeleteVehicle={handleDeleteVehicle}
+            {...commonProps}
+          />
+        );
+
+      case 'map':
+        return (
+          <GoogleMapIntegration
+            guests={guests}
+            vehicles={vehicles}
+            optimizedRoutes={optimizedRoutes}
+            activityLocation={activityLocation}
+            onActivityLocationUpdate={handleActivityLocationUpdate}
+            onGuestLocationUpdate={handleGuestLocationUpdate}
+            onVehicleLocationUpdate={handleVehicleLocationUpdate}
+            {...commonProps}
+          />
+        );
+
+      case 'optimizer':
+        return (
+          <RouteOptimizer
+            guests={guests}
+            vehicles={vehicles}
+            tourData={tourData}
+            environmentalData={environmentalData}
+            onOptimize={handleOptimizeRoute}
+            optimizedRoutes={optimizedRoutes}
+            isLoading={loading}
+            {...commonProps}
+          />
+        );
+
+      case 'schedule':
+        return (
+          <FinalSchedule
+            optimizedRoutes={optimizedRoutes}
+            guests={guests}
+            vehicles={vehicles}
+            tourData={tourData}
+            environmentalData={environmentalData}
+            onExport={handleExportSchedule}
+            {...commonProps}
+          />
+        );
+
+      case 'statistics':
+        return (
+          <Statistics
+            optimizedRoutes={optimizedRoutes}
+            guests={guests}
+            vehicles={vehicles}
+            statistics={statistics}
+            environmentalData={environmentalData}
+            {...commonProps}
+          />
+        );
+
+      case 'settings':
+        return (
+          <Settings
+            settings={settings}
+            onUpdateSettings={handleSettingsUpdate}
+            systemStatus={systemStatus}
+            environmentalData={environmentalData}
+            {...commonProps}
+          />
+        );
+
+      default:
+        return <Typography>ページが見つかりません</Typography>;
     }
   };
-
-  if (loading) {
-    return (
-      <ThemeProvider theme={theme}>
-        <CssBaseline />
-        <Box sx={{ 
-          display: 'flex', 
-          justifyContent: 'center', 
-          alignItems: 'center', 
-          minHeight: '100vh',
-          flexDirection: 'column'
-        }}>
-          <CircularProgress size={60} sx={{ mb: 2 }} />
-          <Typography variant="h6">システムを初期化しています...</Typography>
-        </Box>
-      </ThemeProvider>
-    );
-  }
 
   return (
     <ThemeProvider theme={theme}>
       <CssBaseline />
       <Box sx={{ display: 'flex', minHeight: '100vh' }}>
-        {/* ヘッダー */}
-        <AppBar position="fixed" sx={{ zIndex: theme.zIndex.drawer + 1 }}>
-          <Toolbar>
-            <IconButton
-              color="inherit"
-              onClick={() => setDrawerOpen(true)}
-              edge="start"
-              sx={{ mr: 2 }}
-            >
-              <MenuIcon />
-            </IconButton>
-            <Typography variant="h6" sx={{ flexGrow: 1 }}>
-              石垣島ツアー管理 v2.0
-            </Typography>
-            <IconButton color="inherit" onClick={() => setCurrentView('statistics')}>
-              <Badge 
-                badgeContent={optimizedRoutes.length > 0 ? optimizedRoutes.length : null} 
-                color="secondary"
-              >
-                <NotificationsIcon />
-              </Badge>
-            </IconButton>
-          </Toolbar>
-        </AppBar>
-
-        {/* サイドメニュー */}
+        {/* サイドバー */}
         <Drawer
-          anchor="left"
+          variant={isMobile ? 'temporary' : 'persistent'}
           open={drawerOpen}
           onClose={() => setDrawerOpen(false)}
           sx={{
+            width: 280,
+            flexShrink: 0,
             '& .MuiDrawer-paper': {
               width: 280,
-              boxSizing: 'border-box'
+              boxSizing: 'border-box',
+              backgroundColor: theme.palette.background.paper,
+              borderRight: `1px solid ${theme.palette.divider}`
             }
           }}
         >
-          <Toolbar />
-          <Box sx={{ overflow: 'auto', pt: 1 }}>
-            <Typography variant="h6" sx={{ px: 2, pb: 1, color: 'text.secondary' }}>
-              メニュー
-            </Typography>
-            <Divider />
+          <Box sx={{ overflow: 'auto', height: '100%' }}>
+            {/* ヘッダー */}
+            <Box sx={{ p: 2, borderBottom: `1px solid ${theme.palette.divider}` }}>
+              <Typography variant="h6" component="div" sx={{ fontWeight: 600 }}>
+                🏝️ 石垣島ツアー
+              </Typography>
+              <Typography variant="caption" color="text.secondary">
+                v2.0 気象統合版
+              </Typography>
+            </Box>
+
+            {/* ナビゲーションメニュー */}
             <List>
               {menuItems.map((item) => (
                 <ListItem
-                  key={item.id}
                   button
+                  key={item.id}
                   selected={currentView === item.id}
                   onClick={() => {
                     setCurrentView(item.id);
-                    setDrawerOpen(false);
+                    if (isMobile) setDrawerOpen(false);
                   }}
                   sx={{
                     '&.Mui-selected': {
@@ -578,72 +699,154 @@ const App = () => {
                     }
                   }}
                 >
-                  <ListItemIcon 
-                    sx={{ 
-                      color: currentView === item.id ? theme.palette.primary.main : 'inherit' 
-                    }}
-                  >
-                    {item.badge ? (
-                      <Badge badgeContent={item.badge} color="primary">
-                        {item.icon}
-                      </Badge>
-                    ) : (
-                      item.icon
-                    )}
+                  <ListItemIcon>
+                    <item.icon color={currentView === item.id ? 'primary' : 'inherit'} />
                   </ListItemIcon>
                   <ListItemText 
                     primary={item.label}
-                    sx={{
-                      '& .MuiListItemText-primary': {
-                        fontWeight: currentView === item.id ? 600 : 400
-                      }
+                    primaryTypographyProps={{
+                      fontWeight: currentView === item.id ? 600 : 400
                     }}
                   />
                 </ListItem>
               ))}
             </List>
+
+            <Divider />
+
+            {/* システム情報 */}
+            <Box sx={{ p: 2 }}>
+              <Typography variant="caption" color="text.secondary" gutterBottom>
+                システム状態
+              </Typography>
+              <Chip
+                size="small"
+                label={systemStatus.status === 'online' ? 'オンライン' : 'オフライン'}
+                color={systemStatus.status === 'online' ? 'success' : 'error'}
+                sx={{ mb: 1 }}
+              />
+              
+              <Typography variant="caption" color="text.secondary" display="block">
+                ゲスト: {guests.length}組 | 車両: {vehicles.length}台
+              </Typography>
+              
+              {optimizedRoutes.length > 0 && (
+                <Typography variant="caption" color="success.main" display="block">
+                  最適化済み: {optimizedRoutes.length}ルート
+                </Typography>
+              )}
+
+              {environmentalData && (
+                <Typography variant="caption" color="info.main" display="block">
+                  気象: {environmentalData.weather} {environmentalData.temperature}°C
+                </Typography>
+              )}
+            </Box>
           </Box>
         </Drawer>
 
-        {/* メインコンテンツ */}
-        <Box 
-          component="main" 
-          sx={{ 
-            flexGrow: 1, 
-            bgcolor: 'background.default',
+        {/* メインコンテンツエリア */}
+        <Box
+          component="main"
+          sx={{
+            flexGrow: 1,
+            width: { sm: `calc(100% - ${drawerOpen ? 280 : 0}px)` },
             minHeight: '100vh',
-            pt: 8
+            backgroundColor: theme.palette.background.default
           }}
         >
-          {renderMainContent()}
-        </Box>
-
-        {/* 通知 */}
-        <Snackbar
-          open={notification.open}
-          autoHideDuration={6000}
-          onClose={handleCloseNotification}
-          anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
-        >
-          <Alert
-            onClose={handleCloseNotification}
-            severity={notification.severity}
-            sx={{ width: '100%' }}
-            action={
-              <IconButton
-                size="small"
-                aria-label="close"
-                color="inherit"
-                onClick={handleCloseNotification}
-              >
-                <CloseIcon fontSize="small" />
-              </IconButton>
-            }
+          {/* トップバー */}
+          <AppBar 
+            position="sticky" 
+            sx={{ 
+              backgroundColor: theme.palette.background.paper,
+              color: theme.palette.text.primary,
+              boxShadow: 1,
+              borderBottom: `1px solid ${theme.palette.divider}`
+            }}
           >
-            {notification.message}
-          </Alert>
-        </Snackbar>
+            <Toolbar>
+              <IconButton
+                edge="start"
+                onClick={() => setDrawerOpen(!drawerOpen)}
+                sx={{ mr: 2 }}
+              >
+                <MenuIcon />
+              </IconButton>
+              
+              <Typography variant="h6" component="div" sx={{ flexGrow: 1 }}>
+                {menuItems.find(item => item.id === currentView)?.label || 'ダッシュボード'}
+              </Typography>
+
+              {/* ヘッダー統計 */}
+              <Stack direction="row" spacing={1} sx={{ mr: 2, display: { xs: 'none', md: 'flex' } }}>
+                <Chip 
+                  size="small" 
+                  label={`${guests.reduce((sum, g) => sum + g.people, 0)}名`}
+                  color="primary"
+                  variant="outlined"
+                />
+                <Chip 
+                  size="small" 
+                  label={`${vehicles.filter(v => v.status === 'available').length}台稼働`}
+                  color="secondary"
+                  variant="outlined"
+                />
+                {environmentalData && (
+                  <Chip 
+                    size="small" 
+                    label={`${environmentalData.temperature}°C`}
+                    color="info"
+                    variant="outlined"
+                  />
+                )}
+              </Stack>
+
+              {/* 通知アイコン */}
+              <IconButton>
+                <Badge badgeContent={optimizedRoutes.length} color="error">
+                  <NotificationsIcon />
+                </Badge>
+              </IconButton>
+
+              {/* ローディングインジケーター */}
+              {loading && (
+                <Box sx={{ ml: 2 }}>
+                  <CircularProgress size={20} />
+                </Box>
+              )}
+            </Toolbar>
+          </AppBar>
+
+          {/* メインコンテンツ */}
+          <Container 
+            maxWidth="xl" 
+            sx={{ 
+              py: 3,
+              px: { xs: 2, sm: 3 }
+            }}
+          >
+            {renderCurrentView()}
+          </Container>
+        </Box>
       </Box>
+
+      {/* アラート・スナックバー */}
+      <Snackbar
+        open={alert.open}
+        autoHideDuration={6000}
+        onClose={handleCloseAlert}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+      >
+        <Alert 
+          onClose={handleCloseAlert} 
+          severity={alert.severity}
+          variant="filled"
+          sx={{ width: '100%' }}
+        >
+          {alert.message}
+        </Alert>
+      </Snackbar>
     </ThemeProvider>
   );
 };

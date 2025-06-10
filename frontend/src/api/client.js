@@ -1,5 +1,6 @@
-// client.js - 石垣島ツアー管理API クライアント v2.0 完全版
+// client.js - 石垣島ツアー管理API クライアント v2.0 エラー修正版
 import axios from 'axios';
+import weatherService from '../services/WeatherService';
 
 // API設定
 const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
@@ -124,59 +125,76 @@ export const getSystemStatus = async () => {
  */
 export const optimizeRoute = async (tourRequest) => {
   try {
-    // リクエストデータの検証
+    console.log('🔄 ルート最適化開始...', tourRequest);
+    
+    // バリデーション
     if (!tourRequest.guests || tourRequest.guests.length === 0) {
-      throw new Error('ゲスト情報が必要です');
+      throw new Error('ゲスト情報が設定されていません');
     }
     
     if (!tourRequest.vehicles || tourRequest.vehicles.length === 0) {
-      throw new Error('車両情報が必要です');
+      throw new Error('車両情報が設定されていません');
     }
 
-    // APIリクエスト用にデータ変換
-    const apiRequest = {
-      date: tourRequest.date,
+    if (!tourRequest.activityLocation) {
+      throw new Error('アクティビティ地点が設定されていません');
+    }
+
+    // リクエストデータ整形
+    const optimizationRequest = {
+      date: tourRequest.date || new Date().toISOString().split('T')[0],
       activity_type: tourRequest.activityType || 'シュノーケリング',
-      activity_lat: 24.3336, // 石垣島のデフォルト座標
-      activity_lng: 124.1543,
-      planned_start_time: tourRequest.startTime || '09:00',
+      activity_lat: tourRequest.activityLocation.lat,
+      activity_lng: tourRequest.activityLocation.lng,
+      planned_start_time: tourRequest.startTime || '10:00',
+      departure_lat: tourRequest.departureLocation?.lat || 24.3336,
+      departure_lng: tourRequest.departureLocation?.lng || 124.1543,
       guests: tourRequest.guests.map(guest => ({
-        name: guest.name || '',
-        hotel_name: guest.hotel_name || guest.hotelName || '',
-        pickup_lat: parseFloat(guest.pickup_lat || guest.lat || 24.3336),
-        pickup_lng: parseFloat(guest.pickup_lng || guest.lng || 124.1543),
-        num_people: parseInt(guest.people || guest.num_people || 1),
-        preferred_pickup_start: guest.preferred_pickup_start || '08:30',
-        preferred_pickup_end: guest.preferred_pickup_end || '09:00'
+        id: guest.id,
+        name: guest.name,
+        hotel_name: guest.hotel,
+        pickup_lat: guest.location.lat,
+        pickup_lng: guest.location.lng,
+        num_people: guest.people,
+        preferred_pickup_start: guest.preferredTime?.start || '09:00',
+        preferred_pickup_end: guest.preferredTime?.end || '10:00',
+        contact: guest.contact || null,
+        special_needs: guest.notes || null
       })),
       vehicles: tourRequest.vehicles.map(vehicle => ({
-        id: vehicle.id || `vehicle_${Date.now()}`,
-        name: vehicle.name || '',
-        capacity: parseInt(vehicle.capacity || 8),
-        vehicle_type: vehicle.vehicleType || vehicle.vehicle_type || 'mini_van',
-        driver_name: vehicle.driver || vehicle.driver_name || 'Unknown',
-        equipment: Array.isArray(vehicle.equipment) ? vehicle.equipment : [],
-        speed_factor: parseFloat(vehicle.speed_factor || 1.0)
+        id: vehicle.id,
+        name: vehicle.name,
+        capacity: vehicle.capacity,
+        driver: vehicle.driver,
+        location_lat: vehicle.location.lat,
+        location_lng: vehicle.location.lng,
+        fuel_efficiency: vehicle.fuel_efficiency || 10.0
       })),
-      weather_priority: true,
-      tide_priority: true
+      max_detour_time: tourRequest.max_detour_time || 30,
+      priority_efficiency: tourRequest.priority_efficiency !== false
     };
 
-    const response = await apiClient.post('/api/ishigaki/optimize', apiRequest);
+    const response = await apiClient.post('/api/ishigaki/optimize', optimizationRequest);
     
     return {
       success: true,
       routes: response.data.routes || [],
-      summary: response.data.summary || {},
+      total_distance: response.data.total_distance || 0,
+      total_time: response.data.total_time || 0,
       optimization_time: response.data.optimization_time || 0,
-      recommendations: response.data.recommendations || [],
+      suggestions: response.data.suggestions || [],
       ...response.data
     };
+    
   } catch (error) {
+    console.error('❌ ルート最適化エラー:', error);
     return handleApiError(error, {
       success: false,
       routes: [],
-      message: 'ルート最適化に失敗しました',
+      total_distance: 0,
+      total_time: 0,
+      optimization_time: 0,
+      suggestions: ['最適化に失敗しました。入力データを確認してください。'],
       error: error.message
     });
   }
@@ -185,78 +203,142 @@ export const optimizeRoute = async (tourRequest) => {
 // ===== 環境データ =====
 
 /**
- * 環境データ取得
+ * 🌤️ 環境データ取得（WeatherService統合版）
  * @param {string} date - 対象日付 (YYYY-MM-DD)
  */
 export const getEnvironmentalData = async (date = null) => {
   try {
     const targetDate = date || new Date().toISOString().split('T')[0];
-    const response = await apiClient.get(`/api/ishigaki/environmental_data?date=${targetDate}`);
+    console.log(`🌤️ 環境データ取得: ${targetDate}`);
     
-    return {
+    // まずWeatherServiceから詳細な気象データを取得
+    const weatherData = await weatherService.getWeatherData(targetDate);
+    
+    // バックエンドAPIからの追加データも試行
+    let backendData = null;
+    try {
+      const response = await apiClient.get(`/api/ishigaki/environmental?date=${targetDate}`);
+      backendData = response.data;
+    } catch (error) {
+      console.warn('⚠️ バックエンド環境データ取得失敗（WeatherServiceデータを使用）:', error.message);
+    }
+    
+    // データ統合
+    const combinedData = {
       date: targetDate,
-      weather: '晴れ',
-      temperature: 25,
-      wind_speed: 15,
-      tide_level: 1.2,
-      visibility: 'good',
-      conditions: ['normal'],
-      ...response.data,
+      location: '石垣島',
+      
+      // 気象情報（WeatherServiceからの高精度データ）
+      weather: weatherData.weather,
+      temperature: weatherData.temperature,
+      wind_speed: weatherData.wind_speed,
+      humidity: weatherData.humidity || 75,
+      visibility: weatherData.visibility,
+      conditions: weatherData.conditions || ['normal'],
+      
+      // 海洋情報
+      tide_level: weatherData.tide_level || 150,
+      sea_conditions: weatherData.sea_conditions || {
+        state: '普通',
+        wave_height: '0.5-1.0m'
+      },
+      
+      // 観光情報
+      tourism_advisory: weatherData.tourism_advisory || [],
+      activity_recommendations: weatherData.activity_recommendations || [],
+      
+      // データ品質情報
+      source: weatherData.source || 'weather_service',
+      sources: weatherData.sources || [weatherData.source],
+      reliability: weatherData.reliability || 'high',
+      data_quality: weatherData.data_quality || 'real-time',
+      
+      // バックエンドからの補足データ（あれば）
+      ...(backendData || {}),
+      
       last_updated: new Date().toISOString()
     };
+    
+    console.log('✅ 環境データ統合完了:', combinedData);
+    return combinedData;
+    
   } catch (error) {
-    // フォールバックデータ（石垣島の一般的な気象条件）
+    console.error('❌ 環境データ取得エラー:', error);
+    
+    // フォールバック：石垣島の典型的な気象条件
     return handleApiError(error, {
       date: date || new Date().toISOString().split('T')[0],
+      location: '石垣島',
       weather: '晴れ',
       temperature: 25,
       wind_speed: 15,
-      tide_level: 1.2,
+      humidity: 75,
       visibility: 'good',
       conditions: ['normal'],
+      tide_level: 150,
+      sea_conditions: {
+        state: '普通',
+        wave_height: '0.5-1.0m'
+      },
+      tourism_advisory: ['石垣島の美しい自然をお楽しみください'],
+      activity_recommendations: ['シュノーケリング', '観光ドライブ'],
+      source: 'fallback',
+      reliability: 'estimated',
+      data_quality: 'fallback',
       last_updated: new Date().toISOString(),
-      source: 'fallback'
+      note: 'ネットワークエラーのため推定値を表示しています'
     }, false);
   }
 };
 
-// ===== 統計情報 =====
+/**
+ * 🔧 気象API状態確認
+ */
+export const checkWeatherAPIStatus = async () => {
+  try {
+    const status = await weatherService.checkAPIStatus();
+    return {
+      success: true,
+      api_status: status,
+      last_checked: new Date().toISOString()
+    };
+  } catch (error) {
+    console.error('❌ 気象API状態確認エラー:', error);
+    return {
+      success: false,
+      error: error.message,
+      last_checked: new Date().toISOString()
+    };
+  }
+};
+
+// ===== 統計データ =====
 
 /**
- * 統計情報取得
+ * 統計データ取得
  */
 export const getStatistics = async () => {
   try {
     const response = await apiClient.get('/api/ishigaki/statistics');
-    
     return {
-      total_records: 0,
-      average_delay: 0,
-      prediction_accuracy: 85,
-      area_statistics: [],
-      vehicle_efficiency: [],
+      success: true,
       ...response.data,
-      generated_at: new Date().toISOString()
+      last_updated: new Date().toISOString()
     };
   } catch (error) {
-    // フォールバック統計データ
     return handleApiError(error, {
-      total_records: 0,
-      average_delay: 0,
-      prediction_accuracy: 85,
-      area_statistics: [
-        { area: '川平湾', pickup_count: 45, avg_delay: 2.3, avg_distance: 12.5 },
-        { area: '市街地', pickup_count: 67, avg_delay: 1.8, avg_distance: 8.2 },
-        { area: 'フサキエリア', pickup_count: 32, avg_delay: 3.1, avg_distance: 15.7 },
-        { area: 'ANAエリア', pickup_count: 28, avg_delay: 2.0, avg_distance: 10.3 }
-      ],
-      vehicle_efficiency: [
-        { vehicle_type: 'mini_van', avg_efficiency: 87.5, count: 15 },
-        { vehicle_type: 'sedan', avg_efficiency: 82.1, count: 8 },
-        { vehicle_type: 'bus', avg_efficiency: 91.2, count: 3 }
-      ],
-      generated_at: new Date().toISOString(),
-      source: 'fallback'
+      success: true,
+      daily_tours: 0,
+      total_guests: 0,
+      vehicle_utilization: 0,
+      average_efficiency: 0,
+      total_distance: 0,
+      fuel_consumption: 0,
+      customer_satisfaction: 0,
+      on_time_performance: 0,
+      popular_destinations: [],
+      last_updated: new Date().toISOString(),
+      note: 'データを取得できませんでした'
     }, false);
   }
 };
@@ -269,15 +351,6 @@ export const getStatistics = async () => {
  */
 export const saveRecord = async (record) => {
   try {
-    // データ検証
-    if (!record.tour_date && !record.tourDate) {
-      throw new Error('ツアー日付が必要です');
-    }
-    
-    if (!record.guest_name && !record.guestName) {
-      throw new Error('ゲスト名が必要です');
-    }
-
     const processedRecord = {
       tour_date: record.tourDate || record.tour_date,
       planned_time: record.plannedTime || record.planned_time,
@@ -313,7 +386,7 @@ export const saveRecord = async (record) => {
 /**
  * スケジュールエクスポート
  * @param {Array} routes - ルートデータ
- * @param {string} format - エクスポート形式 ('pdf', 'excel', 'csv')
+ * @param {string} format - エクスポート形式
  */
 export const exportSchedule = async (routes, format = 'pdf') => {
   try {
@@ -326,7 +399,6 @@ export const exportSchedule = async (routes, format = 'pdf') => {
     });
 
     if (format === 'pdf') {
-      // PDFファイルのダウンロード処理
       const blob = new Blob([response.data], { type: 'application/pdf' });
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement('a');
@@ -352,8 +424,6 @@ export const exportSchedule = async (routes, format = 'pdf') => {
 
 /**
  * AIルート提案取得
- * @param {number} guestCount - ゲスト数
- * @param {number} vehicleCount - 車両数
  */
 export const getAIRouteSuggestion = async (guestCount, vehicleCount) => {
   try {
@@ -392,7 +462,6 @@ export const getAIRouteSuggestion = async (guestCount, vehicleCount) => {
 
 /**
  * 車両最適化提案
- * @param {number} vehicleCount - 必要車両数
  */
 export const getVehicleOptimization = async (vehicleCount) => {
   try {
@@ -529,8 +598,20 @@ export const getApiConfig = () => {
       optimization: true,
       ai_suggestions: true,
       environmental_data: true,
+      weather_integration: true, // 新機能
+      google_maps: true, // Google Maps統合
       statistics: true,
       export: true
+    },
+    weather_apis: {
+      jma: { active: true, free: true, name: '気象庁API' },
+      open_meteo: { active: true, free: true, name: 'Open-Meteo' },
+      weather_api: { 
+        active: !!process.env.REACT_APP_WEATHERAPI_KEY, 
+        free: true, 
+        name: 'WeatherAPI',
+        limit: '1M requests/month'
+      }
     }
   };
 };
@@ -544,6 +625,7 @@ export default {
   // コア機能
   optimizeRoute,
   getEnvironmentalData,
+  checkWeatherAPIStatus, // 新機能
   getStatistics,
   saveRecord,
   exportSchedule,
@@ -563,14 +645,4 @@ export default {
   // ユーティリティ
   getApiConfig,
   handleApiError
-};
-
-// 名前付きエクスポート（個別関数）
-export {
-  // 後方互換性のためのエイリアス
-  optimizeRoute as optimizeIshigakiTour,
-  getEnvironmentalData as getIshigakiEnvironmentalData,
-  getStatistics as getIshigakiStatistics,
-  saveRecord as saveIshigakiRecord,
-  getSystemStatus as checkSystemStatus
 };

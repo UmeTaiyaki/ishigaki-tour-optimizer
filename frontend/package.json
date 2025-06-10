@@ -1,45 +1,43 @@
 {
-  "name": "ishigaki-tour-management",
+  "name": "ishigaki-tour-frontend",
   "version": "2.0.0",
+  "description": "石垣島ツアー管理システム フロントエンド Google Maps統合版",
   "private": true,
   "dependencies": {
     "@emotion/react": "^11.11.1",
     "@emotion/styled": "^11.11.0",
     "@mui/icons-material": "^5.14.19",
+    "@mui/material": "^5.14.20",
     "@mui/lab": "^5.0.0-alpha.155",
-    "@mui/material": "^5.14.19",
-    "@mui/x-charts": "^6.18.1",
-    "@mui/x-date-pickers": "^6.18.1",
     "@testing-library/jest-dom": "^5.17.0",
     "@testing-library/react": "^13.4.0",
     "@testing-library/user-event": "^13.5.0",
-    "axios": "^1.9.0",
-    "date-fns": "^2.30.0",
-    "file-saver": "^2.0.5",
-    "html2canvas": "^1.4.1",
-    "jspdf": "^2.5.2",
-    "jspdf-autotable": "^3.8.4",
-    "lodash": "^4.17.21",
-    "qrcode": "^1.5.4",
+    "axios": "^1.6.2",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
-    "react-qr-code": "^2.0.15",
     "react-scripts": "5.0.1",
-    "react-to-print": "^2.15.1",
-    "recharts": "^2.15.3",
     "web-vitals": "^2.1.4"
   },
   "scripts": {
     "start": "react-scripts start",
     "build": "react-scripts build",
     "test": "react-scripts test",
-    "eject": "react-scripts eject"
+    "eject": "react-scripts eject",
+    "lint": "eslint src/**/*.{js,jsx}",
+    "lint:fix": "eslint src/**/*.{js,jsx} --fix",
+    "format": "prettier --write src/**/*.{js,jsx,css,md}",
+    "analyze": "npm run build && npx source-map-explorer 'build/static/js/*.js'"
   },
   "eslintConfig": {
     "extends": [
       "react-app",
       "react-app/jest"
-    ]
+    ],
+    "rules": {
+      "no-unused-vars": "warn",
+      "no-console": "off",
+      "react-hooks/exhaustive-deps": "warn"
+    }
   },
   "browserslist": {
     "production": [
@@ -54,14 +52,36 @@
     ]
   },
   "devDependencies": {
-    "@types/file-saver": "^2.0.5",
-    "@types/lodash": "^4.14.200",
-    "@types/qrcode": "^1.5.2"
+    "@types/google.maps": "^3.54.10",
+    "eslint": "^8.55.0",
+    "eslint-plugin-react": "^7.33.2",
+    "eslint-plugin-react-hooks": "^4.6.0",
+    "prettier": "^3.1.0",
+    "source-map-explorer": "^2.5.3"
   },
-  "overrides": {
-    "react-spring": {
-      "react": "$react",
-      "react-dom": "$react-dom"
-    }
+  "proxy": "http://localhost:8000",
+  "homepage": ".",
+  "keywords": [
+    "石垣島",
+    "ツアー管理",
+    "ルート最適化",
+    "Google Maps",
+    "React",
+    "FastAPI",
+    "観光",
+    "送迎管理"
+  ],
+  "author": "Ishigaki Tour Management Team",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/your-username/ishigaki-tour-management"
+  },
+  "bugs": {
+    "url": "https://github.com/your-username/ishigaki-tour-management/issues"
+  },
+  "engines": {
+    "node": ">=16.0.0",
+    "npm": ">=8.0.0"
   }
 }
