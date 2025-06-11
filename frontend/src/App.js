@@ -19,12 +19,14 @@ import {
   Notifications as NotificationsIcon,
   Close as CloseIcon,
   Refresh as RefreshIcon,
-  RouteOutlined as RouteIcon
+  RouteOutlined as RouteIcon,
+  LocationOn as LocationIcon
 } from '@mui/icons-material';
 
 // コンポーネントインポート
 import GuestManager from './components/GuestManager';
 import VehicleManager from './components/VehicleManager';
+import LocationManager from './components/LocationManager';
 import RouteOptimizer from './components/RouteOptimizer';
 import FinalSchedule from './components/FinalSchedule';
 import Statistics from './components/Statistics';
@@ -40,7 +42,8 @@ const STORAGE_KEYS = {
   guests: 'ishigaki_tour_guests',
   vehicles: 'ishigaki_tour_vehicles',
   tourData: 'ishigaki_tour_data',
-  settings: 'ishigaki_tour_settings'
+  settings: 'ishigaki_tour_settings',
+  optimizedRoutes: 'ishigaki_tour_optimized_routes'
 };
 
 // テーマ設定
@@ -148,6 +151,7 @@ const App = () => {
       const savedVehicles = loadFromStorage(STORAGE_KEYS.vehicles, []);
       const savedTourData = loadFromStorage(STORAGE_KEYS.tourData, {});
       const savedSettings = loadFromStorage(STORAGE_KEYS.settings, {});
+      const savedOptimizedRoutes = loadFromStorage(STORAGE_KEYS.optimizedRoutes, []);
       
       if (savedGuests.length > 0) {
         setGuests(savedGuests);
@@ -165,8 +169,14 @@ const App = () => {
         setSettings(prev => ({ ...prev, ...savedSettings }));
       }
 
+      if (savedOptimizedRoutes.length > 0) {
+        setOptimizedRoutes(savedOptimizedRoutes);
+        console.log('📋 最適化結果を復元:', savedOptimizedRoutes);
+      }
+
       // 初期アクティビティ地点（川平湾）
-      setActivityLocation({ lat: 24.4167, lng: 124.1556 });
+      const initialActivityLocation = savedTourData.activityLocation || { lat: 24.4167, lng: 124.1556 };
+      setActivityLocation(initialActivityLocation);
       
       // システムステータスチェック
       await refreshSystemStatus();
@@ -223,6 +233,14 @@ const App = () => {
     setAlert(prev => ({ ...prev, open: false }));
   };
 
+  // ルート最適化結果をクリア
+  const handleClearOptimizedRoutes = useCallback(() => {
+    setOptimizedRoutes([]);
+    saveToStorage(STORAGE_KEYS.optimizedRoutes, []);
+    console.log('🗑️ 最適化結果をクリアしました');
+    showAlert('最適化結果をクリアしました', 'info');
+  }, [saveToStorage, showAlert]);
+
   // ルート最適化実行
   const handleOptimizeRoute = async () => {
     console.log('🚀 ルート最適化を開始します');
@@ -268,6 +286,8 @@ const App = () => {
 
       // 正常な結果の場合のみ設定
       setOptimizedRoutes(result.routes);
+      saveToStorage(STORAGE_KEYS.optimizedRoutes, result.routes);
+      console.log('💾 最適化結果を保存:', result.routes);
       
       // 統計データも更新
       try {
@@ -308,11 +328,9 @@ const App = () => {
     setGuests(newGuests);
     saveToStorage(STORAGE_KEYS.guests, newGuests);
     
-    // 最適化結果をクリア
-    if (optimizedRoutes.length > 0) {
-      setOptimizedRoutes([]);
-    }
-  }, [saveToStorage, optimizedRoutes.length]);
+    // 最適化結果は保持（データ変更時のみクリア）
+    console.log('ℹ️ 最適化結果を保持します。再最適化が必要な場合は手動で実行してください。');
+  }, [saveToStorage]);
 
   const handleAddGuest = useCallback((guestData) => {
     const newGuest = {
@@ -345,11 +363,9 @@ const App = () => {
     setVehicles(newVehicles);
     saveToStorage(STORAGE_KEYS.vehicles, newVehicles);
     
-    // 最適化結果をクリア
-    if (optimizedRoutes.length > 0) {
-      setOptimizedRoutes([]);
-    }
-  }, [saveToStorage, optimizedRoutes.length]);
+    // 最適化結果は保持（データ変更時のみクリア）
+    console.log('ℹ️ 最適化結果を保持します。再最適化が必要な場合は手動で実行してください。');
+  }, [saveToStorage]);
 
   const handleAddVehicle = useCallback((vehicleData) => {
     const newVehicle = {
@@ -461,6 +477,7 @@ const App = () => {
   const navigationItems = [
     { id: 'guests', label: 'ゲスト管理', icon: <PeopleIcon />, badge: guests.length },
     { id: 'vehicles', label: '車両管理', icon: <CarIcon />, badge: vehicles.length },
+    { id: 'locations', label: '地点管理', icon: <LocationIcon /> },
     { id: 'map', label: '地図表示', icon: <MapIcon /> },
     { id: 'optimizer', label: 'ルート最適化', icon: <RouteIcon /> },
     { id: 'schedule', label: '最終スケジュール', icon: <ScheduleIcon />, badge: optimizedRoutes.length || null },
@@ -502,6 +519,15 @@ const App = () => {
           />
         );
 
+      case 'locations':
+        return (
+          <LocationManager
+            tourData={tourData}
+            onTourDataUpdate={handleTourDataUpdate}
+            {...commonProps}
+          />
+        );
+
       case 'map':
         return (
           <GoogleMapIntegration
@@ -524,6 +550,7 @@ const App = () => {
             tourData={tourData}
             environmentalData={environmentalData}
             onOptimize={handleOptimizeRoute}
+            onClearRoutes={handleClearOptimizedRoutes}
             optimizedRoutes={optimizedRoutes}
             isLoading={loading}
             {...commonProps}
