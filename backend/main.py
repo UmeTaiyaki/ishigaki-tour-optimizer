@@ -1,11 +1,13 @@
+# -*- coding: utf-8 -*-
 """
-🌤️ backend/main.py - APIキー不要版（修正版）
-石垣島ツアー最適化API - データ構造修正版
+backend/main.py - アルゴリズム選択対応版
+石垣島ツアー最適化API - 高度AI搭載版
 
-修正内容:
-1. TourRequestモデルの拡張
-2. フロントエンドとの互換性改善
-3. バリデーション強化
+新機能:
+- 遺伝的アルゴリズム対応
+- シミュレーテッドアニーリング対応
+- アルゴリズム選択API
+- 詳細パフォーマンス比較
 """
 
 import asyncio
@@ -14,22 +16,51 @@ import math
 import random
 import logging
 import json
+import os
+import sys
 from datetime import datetime, timedelta
 from typing import Dict, List, Any, Optional
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field
 import uvicorn
 
-# ロギング設定
-logging.basicConfig(level=logging.INFO)
+# Windows文字エンコーディング対応
+if sys.platform == "win32":
+    import codecs
+    sys.stdout = codecs.getwriter("utf-8")(sys.stdout.detach())
+    sys.stderr = codecs.getwriter("utf-8")(sys.stderr.detach())
+
+# 高度オプティマイザーをインポート
+try:
+    from enhanced_optimizer import EnhancedTourOptimizer
+    OPTIMIZER_AVAILABLE = True
+    print("[OK] EnhancedTourOptimizer 高度版インポート成功")
+except ImportError as e:
+    print(f"[WARNING] EnhancedTourOptimizer インポートエラー: {e}")
+    print("[INFO] フォールバックモードで起動します")
+    OPTIMIZER_AVAILABLE = False
+
+# ロギング設定（Windows対応）
+log_dir = 'logs'
+if not os.path.exists(log_dir):
+    os.makedirs(log_dir)
+
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler(f'{log_dir}/optimization.log', encoding='utf-8'),
+        logging.StreamHandler(sys.stdout)
+    ]
+)
 logger = logging.getLogger(__name__)
 
 # FastAPIアプリケーション初期化
 app = FastAPI(
-    title="石垣島ツアー最適化API（修正版）",
-    description="フロントエンドとの互換性を改善した最適化API",
-    version="2.2.1"
+    title="石垣島ツアー最適化API（高度AI版）",
+    description="遺伝的アルゴリズム搭載の高度なルート最適化システム",
+    version="2.4.0"
 )
 
 # CORS設定
@@ -41,229 +72,205 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ===== 修正されたデータモデル =====
+# グローバルオプティマイザーインスタンス
+if OPTIMIZER_AVAILABLE:
+    tour_optimizer = EnhancedTourOptimizer()
+    logger.info("[OK] EnhancedTourOptimizer 高度版初期化完了")
+else:
+    tour_optimizer = None
+    logger.warning("[WARNING] EnhancedTourOptimizer 使用不可 - フォールバックモード")
 
-class Guest(BaseModel):
-    id: Optional[str] = None
-    name: str
-    hotel_name: str = Field(..., description="ホテル名")
-    pickup_lat: float = Field(..., description="ピックアップ緯度")
-    pickup_lng: float = Field(..., description="ピックアップ経度")
-    num_people: int = Field(..., ge=1, description="人数")
-    preferred_pickup_start: str = Field(default="09:00", description="希望開始時刻")
-    preferred_pickup_end: str = Field(default="10:00", description="希望終了時刻")
-    
-    # オプションフィールド（フロントエンドとの互換性）
-    special_needs: Optional[str] = None
-    guest_type: Optional[str] = "general"
+# ===== 簡易気象サービス（既存機能維持） =====
 
-class VehicleLocation(BaseModel):
-    lat: float = Field(..., description="車両緯度")
-    lng: float = Field(..., description="車両経度")
-
-class Vehicle(BaseModel):
-    id: Optional[str] = None
-    name: str = Field(..., description="車両名")
-    capacity: int = Field(..., ge=1, description="定員")
-    driver: str = Field(..., description="ドライバー名")
-    location: VehicleLocation = Field(..., description="車両位置")
-    
-    # オプションフィールド（フロントエンドとの互換性）
-    vehicle_type: Optional[str] = "mini_van"
-    equipment: Optional[List[str]] = []
-    speed_factor: Optional[float] = 1.0
-
-class TourRequest(BaseModel):
-    date: str = Field(..., description="ツアー日付")
-    activity_type: str = Field(..., description="アクティビティタイプ")
-    start_time: str = Field(..., description="開始時刻")
-    guests: List[Guest] = Field(..., min_items=1, description="ゲストリスト")
-    vehicles: List[Vehicle] = Field(..., min_items=1, description="車両リスト")
-    
-    # フロントエンドから送信される追加フィールド
-    activity_lat: Optional[float] = Field(None, description="アクティビティ緯度")
-    activity_lng: Optional[float] = Field(None, description="アクティビティ経度")
-    planned_start_time: Optional[str] = Field(None, description="計画開始時刻")
-    departure_lat: Optional[float] = Field(None, description="出発地緯度")
-    departure_lng: Optional[float] = Field(None, description="出発地経度")
-    weather_priority: Optional[bool] = Field(True, description="気象優先度")
-    tide_priority: Optional[bool] = Field(True, description="潮汐優先度")
-    
-    @validator('date')
-    def validate_date(cls, v):
-        try:
-            datetime.strptime(v, '%Y-%m-%d')
-            return v
-        except ValueError:
-            raise ValueError('日付は YYYY-MM-DD 形式で入力してください')
-    
-    @validator('start_time', 'planned_start_time')
-    def validate_time(cls, v):
-        if v is None:
-            return v
-        try:
-            datetime.strptime(v, '%H:%M')
-            return v
-        except ValueError:
-            raise ValueError('時刻は HH:MM 形式で入力してください')
-
-# ===== APIキー不要気象サービス =====
-
-class FreeWeatherAPIService:
-    """
-    🌤️ APIキー不要気象API統合サービス
-    """
+class SimpleWeatherService:
+    """簡易気象サービス（既存機能維持）"""
     
     def __init__(self):
-        self.ishigaki_coords = {
-            "lat": 24.3336,
-            "lng": 124.1543,
-            "name": "石垣島"
-        }
-        
-        # 🏝️ 石垣島の季節パターン
-        self.seasonal_patterns = {
-            "winter": {
-                "temp_base": 21,
-                "wind_range": [12, 28],
-                "humidity_range": [65, 80],
-                "common_weather": ["晴れ", "曇り", "小雨"],
-                "tide_range": [120, 180]
-            },
-            "spring": {
-                "temp_base": 25,
-                "wind_range": [8, 22],
-                "humidity_range": [70, 85],
-                "common_weather": ["晴れ", "曇り", "雨"],
-                "tide_range": [110, 190]
-            },
-            "summer": {
-                "temp_base": 29,
-                "wind_range": [5, 15],
-                "humidity_range": [75, 90],
-                "common_weather": ["晴れ", "曇り", "雨", "台風"],
-                "tide_range": [100, 200]
-            },
-            "autumn": {
-                "temp_base": 26,
-                "wind_range": [10, 25],
-                "humidity_range": [70, 85],
-                "common_weather": ["晴れ", "曇り", "雨"],
-                "tide_range": [115, 185]
-            }
-        }
-
-    def _get_current_season(self) -> str:
-        """現在の季節を取得"""
-        month = datetime.now().month
-        if month in [12, 1, 2]:
-            return "winter"
-        elif month in [3, 4, 5]:
-            return "spring"
-        elif month in [6, 7, 8, 9]:
-            return "summer"
-        else:
-            return "autumn"
-
-    def _estimate_tide_level(self, date: str) -> Dict[str, Any]:
-        """潮位レベル推定"""
-        try:
-            target_date = datetime.strptime(date, '%Y-%m-%d')
-            day_of_year = target_date.timetuple().tm_yday
-            
-            # 月の周期に基づく潮位計算（簡易版）
-            lunar_cycle = (day_of_year % 29.5) / 29.5
-            base_tide = 150 + 50 * math.sin(lunar_cycle * 2 * math.pi)
-            
-            return {
-                'level': int(base_tide),
-                'type': 'rising' if lunar_cycle < 0.5 else 'falling'
-            }
-        except:
-            return {'level': 150, 'type': 'stable'}
-
-    def _estimate_wind_speed(self, date: str) -> float:
-        """風速推定"""
-        season = self._get_current_season()
-        pattern = self.seasonal_patterns[season]
-        return random.uniform(*pattern["wind_range"])
-
-    def _estimate_sea_conditions(self, wind_speed: float) -> str:
-        """海況推定"""
-        if wind_speed < 10:
-            return "calm"
-        elif wind_speed < 20:
-            return "moderate"
-        else:
-            return "rough"
-
-    def _calculate_wave_height(self, wind_speed: float) -> float:
-        """波高計算"""
-        return round(wind_speed * 0.1 + random.uniform(-0.2, 0.2), 1)
-
+        self.ishigaki_coords = {"lat": 24.3336, "lng": 124.1543, "name": "石垣島"}
+    
     async def get_weather_data(self, date: str) -> Dict[str, Any]:
-        """気象データ取得（フォールバック版）"""
-        return self._get_fallback_data(date)
-
-    def _get_fallback_data(self, date: str) -> Dict[str, Any]:
-        """完全フォールバックデータ"""
-        season = self._get_current_season()
-        pattern = self.seasonal_patterns[season]
-        tide_estimate = self._estimate_tide_level(date)
-        wind_speed = self._estimate_wind_speed(date)
-        
+        """気象データ取得（簡易版）"""
         return {
             "location": "石垣島",
             "date": date,
-            "weather": random.choice(pattern["common_weather"]),
-            "temperature": pattern["temp_base"] + random.randint(-3, 3),
-            "wind_speed": wind_speed,
-            "humidity": random.randint(*pattern["humidity_range"]),
-            "visibility": "good",
-            "tide_level": tide_estimate['level'],
-            "tide_type": tide_estimate['type'],
-            "sea_conditions": self._estimate_sea_conditions(wind_speed),
-            "wave_height": self._calculate_wave_height(wind_speed),
-            "source": "fallback",
-            "reliability": "estimated",
-            "tourism_advisory": ["石垣島の美しい自然をお楽しみください"],
-            "activity_recommendations": ["島内観光", "地元グルメ"],
+            "weather": "晴れ",
+            "temperature": 26,
+            "wind_speed": 15,
+            "humidity": 75,
+            "visibility": "良好",
+            "tide_level": 150,
+            "tide_type": "中潮",
+            "sea_conditions": "穏やか",
+            "wave_height": 1.0,
+            "source": "simple_service",
+            "reliability": "basic",
             "last_updated": datetime.now().isoformat()
         }
 
 # グローバル気象サービスインスタンス
-weather_service = FreeWeatherAPIService()
+weather_service = SimpleWeatherService()
+
+# ===== データモデル =====
+
+class Guest(BaseModel):
+    id: Optional[str] = None
+    name: str
+    hotel_name: str
+    pickup_lat: float
+    pickup_lng: float
+    num_people: int
+    preferred_pickup_start: str = "09:00"
+    preferred_pickup_end: str = "10:00"
+
+class Vehicle(BaseModel):
+    id: Optional[str] = None
+    name: str
+    capacity: int
+    driver: str
+    location: Dict[str, float]
+
+class ActivityLocation(BaseModel):
+    lat: float
+    lng: float
+    name: str = "アクティビティ地点"
+
+class TourRequest(BaseModel):
+    date: str
+    activity_type: str
+    start_time: str
+    guests: List[Guest]
+    vehicles: List[Vehicle]
+    activity_location: Optional[ActivityLocation] = None
+    algorithm: Optional[str] = "nearest_neighbor"  # 新機能: アルゴリズム選択
+
+# ===== フォールバック最適化関数 =====
+
+def fallback_optimization(tour_request: TourRequest) -> Dict:
+    """フォールバック最適化（既存ロジック維持）"""
+    logger.info("[FALLBACK] フォールバック最適化実行")
+    
+    routes = []
+    for i, vehicle in enumerate(tour_request.vehicles):
+        route = {
+            "vehicle_id": vehicle.id or f"vehicle_{i}",
+            "vehicle_name": vehicle.name,
+            "driver": vehicle.driver,
+            "route": [],
+            "total_distance": 25.5,
+            "total_time": 90,
+            "efficiency_score": 75
+        }
+        routes.append(route)
+    
+    return {
+        "success": True,
+        "routes": routes,
+        "total_distance": 25.5,
+        "total_time": 90,
+        "efficiency_score": 75,
+        "optimization_time": 0.1,
+        "algorithm_used": "fallback",
+        "optimization_log": [
+            "[FALLBACK] フォールバックモードで実行",
+            "[WARNING] 基本的な最適化のみ実行",
+            "[INFO] AI最適化を使用するには enhanced_optimizer.py が必要です"
+        ],
+        "timestamp": datetime.now().isoformat()
+    }
 
 # ===== APIエンドポイント =====
 
 @app.get("/")
 async def root():
+    optimizer_status = "高度AI搭載" if OPTIMIZER_AVAILABLE else "フォールバック"
+    available_algorithms = ["genetic", "simulated_annealing", "nearest_neighbor"] if OPTIMIZER_AVAILABLE else ["fallback"]
+    
     return {
-        "message": "石垣島ツアー最適化API（修正版）",
-        "version": "2.2.1",
-        "apis_used": ["Open-Meteo", "NOAA", "気象庁"],
-        "api_keys_required": False,
-        "fixes": [
-            "TourRequestモデル拡張",
-            "フロントエンド互換性改善",
-            "バリデーション強化"
-        ]
+        "message": f"石垣島ツアー最適化API（{optimizer_status}版）",
+        "version": "2.4.0",
+        "platform": "Windows対応",
+        "optimizer_available": OPTIMIZER_AVAILABLE,
+        "available_algorithms": available_algorithms,
+        "features": ["遺伝的アルゴリズム", "シミュレーテッドアニーリング", "詳細ログ", "統計機能"],
+        "encoding": "UTF-8"
     }
 
 @app.get("/health")
 async def health_check():
     return {
         "status": "healthy",
-        "service": "free_weather_api",
-        "version": "2.2.1",
+        "service": "advanced_tour_optimization",
+        "version": "2.4.0",
+        "platform": "Windows対応",
+        "optimizer_status": "ready" if OPTIMIZER_AVAILABLE else "fallback",
+        "optimizer_available": OPTIMIZER_AVAILABLE,
+        "ai_algorithms": ["genetic", "simulated_annealing"] if OPTIMIZER_AVAILABLE else [],
+        "timestamp": datetime.now().isoformat()
+    }
+
+@app.get("/api/ishigaki/algorithms")
+async def get_available_algorithms():
+    """
+    利用可能なアルゴリズム一覧取得（新機能）
+    """
+    if OPTIMIZER_AVAILABLE:
+        algorithms = [
+            {
+                "name": "genetic",
+                "display_name": "遺伝的アルゴリズム",
+                "description": "高精度最適化（効率90%+期待）",
+                "processing_time": "1-3秒",
+                "recommended_for": "高精度要求時",
+                "parameters": {
+                    "population_size": 30,
+                    "generations": 50,
+                    "mutation_rate": 0.1
+                }
+            },
+            {
+                "name": "simulated_annealing", 
+                "display_name": "シミュレーテッドアニーリング",
+                "description": "バランス型最適化（効率80-90%）",
+                "processing_time": "0.5-1秒",
+                "recommended_for": "中規模問題",
+                "parameters": {
+                    "initial_temperature": 100,
+                    "cooling_rate": 0.95,
+                    "max_iterations": 500
+                }
+            },
+            {
+                "name": "nearest_neighbor",
+                "display_name": "最近傍法",
+                "description": "高速基本最適化（効率75-85%）",
+                "processing_time": "0.1秒",
+                "recommended_for": "基本・緊急時",
+                "parameters": {}
+            }
+        ]
+    else:
+        algorithms = [
+            {
+                "name": "fallback",
+                "display_name": "フォールバック",
+                "description": "基本機能のみ",
+                "processing_time": "0.1秒",
+                "recommended_for": "システム復旧時",
+                "parameters": {}
+            }
+        ]
+    
+    return {
+        "success": True,
+        "algorithms": algorithms,
+        "default_algorithm": "nearest_neighbor",
+        "optimizer_available": OPTIMIZER_AVAILABLE,
         "timestamp": datetime.now().isoformat()
     }
 
 @app.get("/api/ishigaki/environmental")
 async def get_environmental_data(date: str = Query(None, description="対象日付 (YYYY-MM-DD)")):
-    """
-    🌤️ 石垣島環境データ取得（APIキー不要版）
-    """
+    """環境データ取得"""
     try:
         target_date = date or datetime.now().strftime("%Y-%m-%d")
         weather_data = await weather_service.get_weather_data(target_date)
@@ -272,7 +279,7 @@ async def get_environmental_data(date: str = Query(None, description="対象日�
             "success": True,
             "data": weather_data,
             "timestamp": datetime.now().isoformat(),
-            "api_version": "2.2.1"
+            "api_version": "2.4.0"
         }
         
     except Exception as e:
@@ -281,140 +288,310 @@ async def get_environmental_data(date: str = Query(None, description="対象日�
 
 @app.get("/api/ishigaki/weather/status")
 async def check_weather_api_status():
-    """
-    🔧 気象API状態確認
-    """
+    """気象API状態確認"""
     return {
         "success": True,
         "api_status": {
-            "open_meteo": "online",
-            "noaa_tides": "online", 
-            "jma": "online"
+            "simple_weather": "online",
+            "optimizer": "ready" if OPTIMIZER_AVAILABLE else "fallback"
         },
-        "api_keys_required": False,
+        "platform": "Windows対応",
+        "ai_ready": OPTIMIZER_AVAILABLE,
         "last_checked": datetime.now().isoformat()
     }
 
 @app.post("/api/ishigaki/optimize")
 async def optimize_tour_routes(tour_request: TourRequest):
     """
-    🚗 ツアールート最適化（修正版）
+    ツアールート最適化（高度AI版）
     """
+    optimization_start_time = datetime.now()
+    
+    # アルゴリズム検証
+    valid_algorithms = ["genetic", "simulated_annealing", "nearest_neighbor"] if OPTIMIZER_AVAILABLE else ["fallback"]
+    algorithm = tour_request.algorithm or "nearest_neighbor"
+    
+    if algorithm not in valid_algorithms:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"無効なアルゴリズム: {algorithm}. 利用可能: {valid_algorithms}"
+        )
+    
+    # リクエストデータのログ
+    logger.info(f"[REQUEST] 最適化要求受信: {tour_request.date} - {tour_request.activity_type}")
+    logger.info(f"[REQUEST] アルゴリズム: {algorithm}")
+    logger.info(f"[REQUEST] ゲスト数: {len(tour_request.guests)}")
+    logger.info(f"[REQUEST] 車両数: {len(tour_request.vehicles)}")
+    
     try:
-        logger.info(f"最適化リクエスト受信: {len(tour_request.guests)}名のゲスト, {len(tour_request.vehicles)}台の車両")
+        # 入力データ検証
+        if not tour_request.guests:
+            raise HTTPException(status_code=400, detail="ゲスト情報が必要です")
         
-        # アクティビティ地点の設定（デフォルト：川平湾）
-        activity_lat = tour_request.activity_lat or 24.4167
-        activity_lng = tour_request.activity_lng or 124.1556
+        if not tour_request.vehicles:
+            raise HTTPException(status_code=400, detail="車両情報が必要です")
         
-        # 各車両のルート生成
-        routes = []
-        guests_per_vehicle = len(tour_request.guests) // len(tour_request.vehicles)
-        remaining_guests = len(tour_request.guests) % len(tour_request.vehicles)
-        
-        guest_index = 0
-        for i, vehicle in enumerate(tour_request.vehicles):
-            # この車両が担当するゲスト数
-            current_vehicle_guests = guests_per_vehicle + (1 if i < remaining_guests else 0)
+        # AI最適化 または フォールバック
+        if OPTIMIZER_AVAILABLE and tour_optimizer and algorithm != "fallback":
+            logger.info(f"[AI] {algorithm}アルゴリズムで実行")
             
-            # ルート詳細生成
-            route_stops = []
-            pickup_time = datetime.strptime(tour_request.start_time, '%H:%M')
+            # アクティビティ地点のデフォルト設定（川平湾）
+            activity_location = {
+                'lat': tour_request.activity_location.lat if tour_request.activity_location else 24.4167,
+                'lng': tour_request.activity_location.lng if tour_request.activity_location else 124.1556,
+                'name': tour_request.activity_location.name if tour_request.activity_location else "川平湾"
+            }
             
-            for j in range(current_vehicle_guests):
-                if guest_index < len(tour_request.guests):
-                    guest = tour_request.guests[guest_index]
-                    
-                    stop = {
-                        "guest_id": guest.id or f"guest_{guest_index}",
-                        "guest_name": guest.name,
-                        "hotel_name": guest.hotel_name,
-                        "pickup_lat": guest.pickup_lat,
-                        "pickup_lng": guest.pickup_lng,
-                        "num_people": guest.num_people,
-                        "pickup_time": pickup_time.strftime('%H:%M'),
-                        "estimated_arrival": (pickup_time + timedelta(minutes=45)).strftime('%H:%M'),
-                        "time_compliance": "acceptable",
-                        "distance_from_prev": round(random.uniform(2.5, 8.5), 1),
-                        "travel_time": random.randint(8, 15)
-                    }
-                    
-                    route_stops.append(stop)
-                    pickup_time += timedelta(minutes=10)  # 次のピックアップまで10分
-                    guest_index += 1
-            
-            # アクティビティ地点追加
-            if route_stops:
-                activity_stop = {
-                    "location_type": "activity",
-                    "name": "アクティビティ地点",
-                    "lat": activity_lat,
-                    "lng": activity_lng,
-                    "arrival_time": (pickup_time + timedelta(minutes=15)).strftime('%H:%M'),
-                    "distance_from_prev": round(random.uniform(5.0, 15.0), 1),
-                    "travel_time": random.randint(15, 30)
+            # ゲストデータ変換
+            guests_data = []
+            for guest in tour_request.guests:
+                guest_dict = {
+                    'id': guest.id or f"guest_{len(guests_data)}",
+                    'name': guest.name,
+                    'hotel_name': guest.hotel_name,
+                    'pickup_lat': guest.pickup_lat,
+                    'pickup_lng': guest.pickup_lng,
+                    'num_people': guest.num_people,
+                    'preferred_pickup_start': guest.preferred_pickup_start,
+                    'preferred_pickup_end': guest.preferred_pickup_end
                 }
-                route_stops.append(activity_stop)
+                guests_data.append(guest_dict)
             
-            route = {
-                "vehicle_id": vehicle.id or f"vehicle_{i}",
-                "vehicle_name": vehicle.name,
-                "driver": vehicle.driver,
-                "capacity": vehicle.capacity,
-                "route": route_stops,
-                "total_distance": round(sum(stop.get('distance_from_prev', 0) for stop in route_stops), 1),
-                "total_time": sum(stop.get('travel_time', 0) for stop in route_stops),
-                "efficiency_score": random.randint(75, 95),
-                "total_guests": sum(stop.get('num_people', 0) for stop in route_stops if 'num_people' in stop)
+            # 車両データ変換
+            vehicles_data = []
+            for vehicle in tour_request.vehicles:
+                vehicle_dict = {
+                    'id': vehicle.id or f"vehicle_{len(vehicles_data)}",
+                    'name': vehicle.name,
+                    'capacity': vehicle.capacity,
+                    'driver': vehicle.driver,
+                    'location': vehicle.location
+                }
+                vehicles_data.append(vehicle_dict)
+            
+            # 最適化実行（選択されたアルゴリズム）
+            optimization_result = await tour_optimizer.optimize_multi_vehicle_routes(
+                guests=guests_data,
+                vehicles=vehicles_data,
+                activity_location=activity_location,
+                activity_start_time=tour_request.start_time,
+                algorithm=algorithm  # ここが新機能！
+            )
+            
+            optimization_end_time = datetime.now()
+            optimization_duration = (optimization_end_time - optimization_start_time).total_seconds()
+            
+            logger.info(f"[SUCCESS] {algorithm}最適化完了: {optimization_duration:.2f}秒")
+            logger.info(f"[RESULT] 効率: {optimization_result['efficiency_score']:.1f}%")
+            logger.info(f"[RESULT] 距離: {optimization_result['total_distance']}km")
+            
+            # レスポンス構築
+            response = {
+                "success": True,
+                "routes": optimization_result['routes'],
+                "total_distance": optimization_result['total_distance'],
+                "total_time": optimization_result['total_time'],
+                "efficiency_score": optimization_result['efficiency_score'],
+                "optimization_time": round(optimization_duration, 2),
+                "algorithm_used": optimization_result['algorithm_used'],
+                "optimization_log": optimization_result['optimization_log'],
+                "generation_logs": optimization_result.get('generation_logs'),
+                "timestamp": optimization_end_time.isoformat(),
+                "api_version": "2.4.0",
+                "optimizer_mode": "AI",
+                "platform": "Windows対応"
             }
-            routes.append(route)
+            
+        else:
+            # フォールバック最適化
+            logger.info("[FALLBACK] フォールバックモードで実行")
+            response = fallback_optimization(tour_request)
+            response["optimizer_mode"] = "fallback"
+            response["platform"] = "Windows対応"
         
-        total_distance = sum(route['total_distance'] for route in routes)
-        total_time = max(route['total_time'] for route in routes) if routes else 0
+        logger.info("[COMPLETE] 最適化レスポンス送信完了")
+        return response
         
-        result = {
-            "success": True,
-            "routes": routes,
-            "total_distance": round(total_distance, 1),
-            "total_time": total_time,
-            "optimization_time": round(random.uniform(0.8, 2.5), 1),
-            "timestamp": datetime.now().isoformat(),
-            "summary": {
-                "total_vehicles": len(tour_request.vehicles),
-                "total_guests": len(tour_request.guests),
-                "total_people": sum(guest.num_people for guest in tour_request.guests),
-                "activity_location": {"lat": activity_lat, "lng": activity_lng},
-                "start_time": tour_request.start_time
-            }
-        }
-        
-        logger.info(f"最適化完了: {len(routes)}ルート生成")
-        return result
-        
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error(f"ルート最適化エラー: {e}")
-        raise HTTPException(status_code=500, detail=f"最適化処理エラー: {str(e)}")
+        logger.error(f"[ERROR] 最適化エラー: {e}")
+        
+        # エラー時もフォールバックを試行
+        if OPTIMIZER_AVAILABLE and algorithm != "nearest_neighbor":
+            logger.info("[FALLBACK] エラー時 nearest_neighbor で再実行")
+            try:
+                tour_request.algorithm = "nearest_neighbor"
+                return await optimize_tour_routes(tour_request)
+            except Exception:
+                pass
+        
+        # 最終フォールバック
+        response = fallback_optimization(tour_request)
+        response["error_fallback"] = True
+        response["original_error"] = str(e)
+        response["platform"] = "Windows対応"
+        return response
 
-@app.get("/api/ishigaki/statistics")
-async def get_statistics():
+@app.post("/api/ishigaki/compare")
+async def compare_algorithms(tour_request: TourRequest):
     """
-    📊 統計データ取得
+    複数アルゴリズム比較実行（新機能）
     """
+    if not OPTIMIZER_AVAILABLE:
+        raise HTTPException(status_code=503, detail="AI最適化エンジンが利用できません")
+    
+    logger.info("[COMPARE] アルゴリズム比較開始")
+    
+    algorithms = ["nearest_neighbor", "simulated_annealing", "genetic"]
+    results = {}
+    
+    for algorithm in algorithms:
+        try:
+            logger.info(f"[COMPARE] {algorithm} 実行中...")
+            tour_request.algorithm = algorithm
+            
+            start_time = datetime.now()
+            result = await optimize_tour_routes(tour_request)
+            end_time = datetime.now()
+            
+            results[algorithm] = {
+                "efficiency_score": result["efficiency_score"],
+                "total_distance": result["total_distance"],
+                "total_time": result["total_time"],
+                "optimization_time": result["optimization_time"],
+                "algorithm_display": {
+                    "nearest_neighbor": "最近傍法",
+                    "simulated_annealing": "シミュレーテッドアニーリング",
+                    "genetic": "遺伝的アルゴリズム"
+                }[algorithm]
+            }
+            
+        except Exception as e:
+            logger.error(f"[COMPARE] {algorithm} エラー: {e}")
+            results[algorithm] = {
+                "error": str(e),
+                "algorithm_display": {
+                    "nearest_neighbor": "最近傍法",
+                    "simulated_annealing": "シミュレーテッドアニーリング", 
+                    "genetic": "遺伝的アルゴリズム"
+                }[algorithm]
+            }
+    
+    # 最良アルゴリズム特定
+    best_algorithm = None
+    best_efficiency = 0
+    
+    for algo, result in results.items():
+        if "efficiency_score" in result and result["efficiency_score"] > best_efficiency:
+            best_efficiency = result["efficiency_score"]
+            best_algorithm = algo
+    
+    logger.info(f"[COMPARE] 比較完了: 最良 {best_algorithm} ({best_efficiency:.1f}%)")
+    
     return {
         "success": True,
-        "statistics": {
-            "total_tours": 150,
-            "total_guests": 450,
-            "total_distance": 2500.5,
-            "average_efficiency": 78,
-            "popular_activities": [
-                {"name": "シュノーケリング", "count": 45},
-                {"name": "ダイビング", "count": 38},
-                {"name": "観光ドライブ", "count": 67}
-            ]
-        },
+        "comparison_results": results,
+        "best_algorithm": best_algorithm,
+        "best_efficiency": best_efficiency,
+        "recommendation": f"{best_algorithm}アルゴリズムが最も効率的です",
         "timestamp": datetime.now().isoformat()
     }
 
+@app.get("/api/ishigaki/statistics")
+async def get_statistics():
+    """統計データ取得"""
+    logger.info("[STATS] 統計データ取得要求")
+    
+    try:
+        if OPTIMIZER_AVAILABLE and tour_optimizer:
+            # AI最適化統計
+            stats = await tour_optimizer.get_performance_statistics()
+        else:
+            # フォールバック統計
+            stats = {
+                'total_optimizations': 0,
+                'successful_optimizations': 0,
+                'success_rate': 0,
+                'average_optimization_time': 0,
+                'best_efficiency_score': 0,
+                'algorithm_usage': {},
+                'version': 'fallback',
+                'last_updated': datetime.now().isoformat()
+            }
+        
+        return {
+            "success": True,
+            "statistics": stats,
+            "optimizer_available": OPTIMIZER_AVAILABLE,
+            "platform": "Windows対応",
+            "timestamp": datetime.now().isoformat()
+        }
+        
+    except Exception as e:
+        logger.error(f"統計取得エラー: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/ishigaki/optimization/logs")
+async def get_optimization_logs(limit: int = Query(50, description="取得ログ数")):
+    """最適化ログ取得"""
+    try:
+        if OPTIMIZER_AVAILABLE and tour_optimizer:
+            logs = await tour_optimizer.get_recent_logs(limit)
+        else:
+            logs = []
+        
+        return {
+            "success": True,
+            "logs": logs,
+            "count": len(logs),
+            "optimizer_available": OPTIMIZER_AVAILABLE,
+            "platform": "Windows対応",
+            "timestamp": datetime.now().isoformat()
+        }
+    except Exception as e:
+        logger.error(f"ログ取得エラー: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/ishigaki/system/status")
+async def get_system_status():
+    """システム状態確認"""
+    return {
+        "success": True,
+        "system_status": {
+            "optimizer_available": OPTIMIZER_AVAILABLE,
+            "optimizer_type": "EnhancedTourOptimizer" if OPTIMIZER_AVAILABLE else "fallback",
+            "ai_algorithms": ["genetic", "simulated_annealing", "nearest_neighbor"] if OPTIMIZER_AVAILABLE else [],
+            "log_directory": os.path.exists('logs'),
+            "api_version": "2.4.0",
+            "platform": "Windows対応",
+            "python_version": f"{sys.version_info.major}.{sys.version_info.minor}",
+            "encoding": "UTF-8",
+            "startup_time": datetime.now().isoformat()
+        },
+        "available_endpoints": [
+            "/api/ishigaki/optimize",
+            "/api/ishigaki/compare",     # 新機能
+            "/api/ishigaki/algorithms",  # 新機能
+            "/api/ishigaki/statistics", 
+            "/api/ishigaki/optimization/logs",
+            "/api/ishigaki/environmental",
+            "/api/ishigaki/system/status"
+        ]
+    }
+
 if __name__ == "__main__":
+    # ログディレクトリ確認
+    if not os.path.exists('logs'):
+        os.makedirs('logs')
+        logger.info("[SETUP] ログディレクトリを作成しました")
+    
+    # 起動ログ
+    logger.info("[STARTUP] 石垣島ツアー最適化API 高度版起動中...")
+    logger.info(f"[STARTUP] AI最適化: {'有効' if OPTIMIZER_AVAILABLE else '無効（フォールバック）'}")
+    logger.info("[STARTUP] プラットフォーム: Windows対応")
+    
+    if OPTIMIZER_AVAILABLE:
+        logger.info("[STARTUP] 利用可能アルゴリズム: genetic, simulated_annealing, nearest_neighbor")
+    
     uvicorn.run(app, host="0.0.0.0", port=8000)
