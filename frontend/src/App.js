@@ -1,14 +1,15 @@
-// App.js - Phase 4B+ 完全修正版（RouteOptimizer連携・エラー対策）
+// App.js - ツアー情報ページ統合版
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   ThemeProvider, createTheme, CssBaseline, Box, AppBar, Toolbar,
   Typography, IconButton, Drawer, List, ListItem, ListItemIcon,
   ListItemText, Divider, Alert, Snackbar, Chip, Badge, Button,
-  CircularProgress, Container, useMediaQuery, Stack
+  CircularProgress, Container, useMediaQuery, Stack, LinearProgress
 } from '@mui/material';
 import {
   Menu as MenuIcon,
   Dashboard as DashboardIcon,
+  Info as TourInfoIcon,
   People as PeopleIcon,
   DirectionsCar as CarIcon,
   Schedule as ScheduleIcon,
@@ -24,6 +25,7 @@ import {
 } from '@mui/icons-material';
 
 // コンポーネントインポート
+import TourInfo from './components/TourInfo'; // 🆕 新規追加
 import GuestManager from './components/GuestManager';
 import VehicleManager from './components/VehicleManager';
 import LocationManager from './components/LocationManager';
@@ -107,7 +109,7 @@ const App = () => {
     departureLocation: null
   });
   const [optimizedRoutes, setOptimizedRoutes] = useState([]);
-  const [currentView, setCurrentView] = useState('guests');
+  const [currentView, setCurrentView] = useState('tour-info'); // 🆕 デフォルトをツアー情報に変更
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [alert, setAlert] = useState({ open: false, message: '', severity: 'info' });
@@ -121,110 +123,119 @@ const App = () => {
     defaultAlgorithm: 'nearest_neighbor'
   });
   const [environmentalData, setEnvironmentalData] = useState(null);
-  const [statistics, setStatistics] = useState({});
-  const [systemStatus, setSystemStatus] = useState({ status: 'checking' });
+  const [statistics, setStatistics] = useState({
+    totalTours: 0,
+    totalGuests: 0,
+    totalDistance: 0,
+    averageEfficiency: 0,
+    last_optimization: null
+  });
+  const [systemStatus, setSystemStatus] = useState({ status: 'online' });
   const [activityLocation, setActivityLocation] = useState(null);
 
-  // テーマ設定
+  // ダークモードテーマ
   const prefersDarkMode = useMediaQuery('(prefers-color-scheme: dark)');
   const theme = createAppTheme(prefersDarkMode);
 
-  // ========== Storage Management ==========
+  // 🆕 更新されたメニュー項目（ツアー情報を最上位に）
+  const menuItems = [
+    { id: 'tour-info', label: 'ツアー情報', icon: <TourInfoIcon />, priority: true },
+    { id: 'optimizer', label: 'ルート最適化', icon: <RouteIcon />, 
+      badge: optimizedRoutes.length > 0 ? optimizedRoutes.length : null },
+    { id: 'schedule', label: '最終スケジュール', icon: <ScheduleIcon />, 
+      badge: optimizedRoutes.length > 0 ? optimizedRoutes.length : null },
+    { id: 'guests', label: 'ゲスト管理', icon: <PeopleIcon />, isResource: true },
+    { id: 'vehicles', label: '車両管理', icon: <CarIcon />, isResource: true },
+    { id: 'locations', label: '地点管理', icon: <LocationIcon />, isResource: true },
+    { id: 'map', label: '地図表示', icon: <MapIcon /> },
+    { id: 'weather', label: '気象情報', icon: <WeatherIcon /> },
+    { id: 'statistics', label: '統計・分析', icon: <StatisticsIcon /> },
+    { id: 'settings', label: '設定', icon: <SettingsIcon /> }
+  ];
+
+  // ========== Effects ==========
+  useEffect(() => {
+    initializeApp();
+  }, []);
+
+  useEffect(() => {
+    if (settings.autoRefresh) {
+      const interval = setInterval(() => {
+        fetchEnvironmentalData();
+      }, settings.refreshInterval * 1000);
+      return () => clearInterval(interval);
+    }
+  }, [settings.autoRefresh, settings.refreshInterval]);
+
+  // ========== Core Functions ==========
+  const initializeApp = async () => {
+    setLoading(true);
+    try {
+      await Promise.all([
+        loadFromStorage(),
+        fetchEnvironmentalData(),
+        checkSystemStatus()
+      ]);
+    } catch (error) {
+      console.error('アプリ初期化エラー:', error);
+      showAlert('アプリの初期化に失敗しました', 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const loadFromStorage = useCallback(() => {
+    try {
+      Object.entries(STORAGE_KEYS).forEach(([key, storageKey]) => {
+        const stored = localStorage.getItem(storageKey);
+        if (stored) {
+          const data = JSON.parse(stored);
+          switch (key) {
+            case 'guests':
+              setGuests(data);
+              break;
+            case 'vehicles':
+              setVehicles(data);
+              break;
+            case 'tourData':
+              setTourData(prev => ({ ...prev, ...data }));
+              break;
+            case 'settings':
+              setSettings(prev => ({ ...prev, ...data }));
+              break;
+            case 'optimizedRoutes':
+              setOptimizedRoutes(data);
+              break;
+          }
+        }
+      });
+    } catch (error) {
+      console.error('ストレージからの読み込みエラー:', error);
+    }
+  }, []);
+
   const saveToStorage = useCallback((key, data) => {
     try {
-      localStorage.setItem(key, JSON.stringify(data));
-      console.log(`💾 ${key} をローカルストレージに保存:`, data);
+      localStorage.setItem(STORAGE_KEYS[key], JSON.stringify(data));
     } catch (error) {
-      console.error(`💾 ${key} の保存エラー:`, error);
+      console.error('ストレージへの保存エラー:', error);
     }
   }, []);
 
-  const loadFromStorage = useCallback((key, defaultValue = null) => {
-    try {
-      const saved = localStorage.getItem(key);
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        console.log(`💾 ${key} をローカルストレージから復元:`, parsed);
-        return parsed;
-      }
-    } catch (error) {
-      console.error(`💾 ${key} の読み込みエラー:`, error);
-    }
-    return defaultValue;
-  }, []);
-
-  // ========== Initialization ==========
-  useEffect(() => {
-    console.log('🚀 アプリケーションを初期化中...');
-    
-    // ローカルストレージからデータ復元
-    const savedGuests = loadFromStorage(STORAGE_KEYS.guests, []);
-    const savedVehicles = loadFromStorage(STORAGE_KEYS.vehicles, []);
-    const savedTourData = loadFromStorage(STORAGE_KEYS.tourData, tourData);
-    const savedSettings = loadFromStorage(STORAGE_KEYS.settings, settings);
-    const savedRoutes = loadFromStorage(STORAGE_KEYS.optimizedRoutes, []);
-
-    setGuests(savedGuests);
-    setVehicles(savedVehicles);
-    setTourData(savedTourData);
-    setSettings(savedSettings);
-    
-    if (savedRoutes && savedRoutes.length > 0) {
-      setOptimizedRoutes(savedRoutes);
-      console.log('📋 最適化結果を復元:', savedRoutes);
-    }
-
-    // アクティビティ地点の設定
-    if (savedTourData.activityLocation) {
-      setActivityLocation(savedTourData.activityLocation);
-    }
-
-    // システム初期化
-    initializeSystem();
-    
-    console.log('✅ アプリケーション初期化完了');
-  }, [loadFromStorage]);
-
-  const initializeSystem = async () => {
-    try {
-      // システムステータス確認
-      await checkSystemStatus();
-      
-      // 環境データ読み込み
-      if (settings.weatherIntegration) {
-        await loadEnvironmentalData();
-      }
-    } catch (error) {
-      console.error('システム初期化エラー:', error);
-    }
-  };
-
-  // ========== System Functions ==========
   const checkSystemStatus = async () => {
     try {
-      const status = await api.checkSystemStatus();
-      setSystemStatus({
-        ...status,
-        last_checked: new Date().toISOString()
-      });
+      const status = await api.getSystemStatus();
+      setSystemStatus(status);
     } catch (error) {
-      console.error('システムステータス取得エラー:', error);
-      setSystemStatus({
-        status: 'offline',
-        last_checked: new Date().toISOString(),
-        error: error.message
-      });
+      console.error('システム状態確認エラー:', error);
+      setSystemStatus({ status: 'offline' });
     }
   };
 
-  const loadEnvironmentalData = async (date = null) => {
-    if (!settings.weatherIntegration) return;
-    
+  const fetchEnvironmentalData = async () => {
     try {
-      const targetDate = date || tourData.date;
-      const envData = await api.getEnvironmentalData(targetDate);
-      setEnvironmentalData(envData.data || envData);
-      console.log('🌤️ 環境データを取得:', envData);
+      const data = await api.getEnvironmentalData();
+      setEnvironmentalData(data);
     } catch (error) {
       console.error('環境データ取得エラー:', error);
     }
@@ -241,8 +252,34 @@ const App = () => {
 
   // ========== Route Optimization Functions ==========
   
+  // 🔧 ツアー情報で選択されたデータを保持
+  const [selectedTourGuests, setSelectedTourGuests] = useState([]);
+  const [selectedTourVehicles, setSelectedTourVehicles] = useState([]);
+
   /**
-   * 🔧 新機能: RouteOptimizerからの最適化完了通知を処理
+   * 🆕 ツアー情報からの最適化準備完了通知（修正版）
+   */
+  const handleOptimizationReady = useCallback((readyData) => {
+    console.log('🎯 ツアー情報から最適化準備完了:', readyData);
+    console.log('📊 選択されたゲスト:', readyData.guests.length, '組');
+    console.log('📊 選択された車両:', readyData.vehicles.length, '台');
+    
+    // ツアーデータを更新
+    setTourData(readyData.tourData);
+    saveToStorage('tourData', readyData.tourData);
+    
+    // 🔧 選択されたゲスト・車両データを保存（最適化用）
+    setSelectedTourGuests(readyData.guests);
+    setSelectedTourVehicles(readyData.vehicles);
+    
+    showAlert(
+      `AI最適化の準備が完了しました！ゲスト${readyData.guests.length}組・車両${readyData.vehicles.length}台で実行できます。`, 
+      'success'
+    );
+  }, [saveToStorage, showAlert]);
+
+  /**
+   * RouteOptimizerからの最適化完了通知を処理
    */
   const handleRouteOptimizerComplete = useCallback((routes, optimizationResult) => {
     console.log('🎉 RouteOptimizerから最適化完了通知:', routes);
@@ -257,7 +294,7 @@ const App = () => {
     
     // 最適化結果をstateに保存
     setOptimizedRoutes(routes);
-    saveToStorage(STORAGE_KEYS.optimizedRoutes, routes);
+    saveToStorage('optimizedRoutes', routes);
     console.log('💾 最適化結果を保存:', routes);
     
     // 統計データも更新
@@ -294,7 +331,7 @@ const App = () => {
   }, [saveToStorage, showAlert]);
 
   /**
-   * 🔧 新機能: RouteOptimizerからのエラー通知を処理
+   * RouteOptimizerからのエラー通知を処理
    */
   const handleRouteOptimizerError = useCallback((error) => {
     console.error('❌ RouteOptimizerエラー:', error);
@@ -321,7 +358,7 @@ const App = () => {
   }, [showAlert]);
 
   /**
-   * 🔧 既存互換性: 従来のhandleOptimizeRoute関数（フォールバック用）
+   * 既存互換性: 従来のhandleOptimizeRoute関数（フォールバック用）
    */
   const handleOptimizeRoute = async (optimizationData = null) => {
     console.log('🔄 従来互換: handleOptimizeRoute呼び出し');
@@ -374,19 +411,30 @@ const App = () => {
    */
   const handleClearOptimizedRoutes = useCallback(() => {
     setOptimizedRoutes([]);
-    saveToStorage(STORAGE_KEYS.optimizedRoutes, []);
+    saveToStorage('optimizedRoutes', []);
     console.log('🗑️ 最適化結果をクリアしました');
     showAlert('最適化結果をクリアしました', 'info');
   }, [saveToStorage, showAlert]);
 
-  // ========== Guest Management ==========
+  // ========== Data Management ==========
   const handleGuestsUpdate = useCallback((newGuests) => {
-    console.log('👥 ゲストデータを更新:', newGuests);
+    console.log('👥 App.js: ゲストデータを更新:', newGuests.length, '件');
+    console.log('📝 App.js: 更新内容:', newGuests.map(g => ({ id: g.id, name: g.name })));
     setGuests(newGuests);
-    saveToStorage(STORAGE_KEYS.guests, newGuests);
-    
-    // 最適化結果は保持（データ変更時のみクリア）
-    console.log('ℹ️ 最適化結果を保持します。再最適化が必要な場合は手動で実行してください。');
+    saveToStorage('guests', newGuests);
+  }, [saveToStorage]);
+
+  const handleVehiclesUpdate = useCallback((newVehicles) => {
+    console.log('🚗 App.js: 車両データを更新:', newVehicles.length, '台');
+    console.log('📝 App.js: 更新内容:', newVehicles.map(v => ({ id: v.id, name: v.name })));
+    setVehicles(newVehicles);
+    saveToStorage('vehicles', newVehicles);
+  }, [saveToStorage]);
+
+  const handleTourDataUpdate = useCallback((newTourData) => {
+    console.log('📋 ツアーデータを更新:', newTourData);
+    setTourData(newTourData);
+    saveToStorage('tourData', newTourData);
   }, [saveToStorage]);
 
   const handleAddGuest = useCallback((guestData) => {
@@ -402,7 +450,7 @@ const App = () => {
 
   const handleUpdateGuest = useCallback((guestId, updatedData) => {
     const newGuests = guests.map(guest => 
-      guest.id === guestId ? { ...guest, ...updatedData } : guest
+      guest.id === guestId ? { ...guest, ...updatedData, updated_at: new Date().toISOString() } : guest
     );
     handleGuestsUpdate(newGuests);
     showAlert('ゲスト情報を更新しました', 'success');
@@ -413,13 +461,6 @@ const App = () => {
     handleGuestsUpdate(newGuests);
     showAlert('ゲストを削除しました', 'info');
   }, [guests, handleGuestsUpdate, showAlert]);
-
-  // ========== Vehicle Management ==========
-  const handleVehiclesUpdate = useCallback((newVehicles) => {
-    console.log('🚗 車両データを更新:', newVehicles);
-    setVehicles(newVehicles);
-    saveToStorage(STORAGE_KEYS.vehicles, newVehicles);
-  }, [saveToStorage]);
 
   const handleAddVehicle = useCallback((vehicleData) => {
     const newVehicle = {
@@ -434,7 +475,7 @@ const App = () => {
 
   const handleUpdateVehicle = useCallback((vehicleId, updatedData) => {
     const newVehicles = vehicles.map(vehicle => 
-      vehicle.id === vehicleId ? { ...vehicle, ...updatedData } : vehicle
+      vehicle.id === vehicleId ? { ...vehicle, ...updatedData, updated_at: new Date().toISOString() } : vehicle
     );
     handleVehiclesUpdate(newVehicles);
     showAlert('車両情報を更新しました', 'success');
@@ -446,30 +487,10 @@ const App = () => {
     showAlert('車両を削除しました', 'info');
   }, [vehicles, handleVehiclesUpdate, showAlert]);
 
-  // ========== Tour Data Management ==========
-  const handleTourDataUpdate = useCallback((newTourData) => {
-    console.log('📅 ツアーデータを更新:', newTourData);
-    setTourData(newTourData);
-    saveToStorage(STORAGE_KEYS.tourData, newTourData);
-    
-    // アクティビティ地点の同期
-    if (newTourData.activityLocation) {
-      setActivityLocation(newTourData.activityLocation);
-    }
-    
-    // 日付が変わった場合は環境データを更新
-    if (newTourData.date !== tourData.date && settings.weatherIntegration) {
-      loadEnvironmentalData(newTourData.date);
-    }
-  }, [saveToStorage, tourData.date, settings.weatherIntegration, loadEnvironmentalData]);
-
-  // ========== Location Management ==========
   const handleActivityLocationUpdate = useCallback((location) => {
     setActivityLocation(location);
-    const newTourData = { ...tourData, activityLocation: location };
-    handleTourDataUpdate(newTourData);
-    showAlert('アクティビティ地点を更新しました', 'success');
-  }, [tourData, handleTourDataUpdate, showAlert]);
+    handleTourDataUpdate({ ...tourData, activityLocation: location });
+  }, [tourData, handleTourDataUpdate]);
 
   const handleGuestLocationUpdate = useCallback((guestId, location) => {
     handleUpdateGuest(guestId, { location });
@@ -479,12 +500,11 @@ const App = () => {
     handleUpdateVehicle(vehicleId, { location });
   }, [handleUpdateVehicle]);
 
-  // ========== Export Functions ==========
   const handleExportSchedule = useCallback(async (format = 'pdf') => {
     try {
       const result = await api.exportSchedule(optimizedRoutes, format);
       if (result.success) {
-        showAlert(`${format.toUpperCase()}形式でエクスポートしました`, 'success');
+        showAlert(`スケジュールを${format.toUpperCase()}形式でエクスポートしました`, 'success');
       } else {
         throw new Error(result.error || 'エクスポートに失敗しました');
       }
@@ -494,39 +514,23 @@ const App = () => {
     }
   }, [optimizedRoutes, showAlert]);
 
-  // ========== Settings Management ==========
-  const handleSettingsUpdate = useCallback(async (newSettings) => {
-    try {
-      const updatedSettings = { ...settings, ...newSettings };
-      setSettings(updatedSettings);
-      saveToStorage(STORAGE_KEYS.settings, updatedSettings);
-      
-      const result = await api.saveSettings(updatedSettings);
-      if (result.success) {
-        showAlert('設定を保存しました', 'success');
-      }
-    } catch (error) {
-      console.error('設定保存エラー:', error);
-      showAlert('設定の保存に失敗しました', 'error');
-    }
-  }, [settings, saveToStorage, showAlert]);
-
-  // ========== Navigation ==========
-  const menuItems = [
-    { id: 'guests', label: 'ゲスト管理', icon: <PeopleIcon />, badge: guests.length },
-    { id: 'vehicles', label: '車両管理', icon: <CarIcon />, badge: vehicles.length },
-    { id: 'locations', label: '地点管理', icon: <LocationIcon /> },
-    { id: 'optimizer', label: 'ルート最適化', icon: <RouteIcon /> },
-    { id: 'schedule', label: '最終スケジュール', icon: <ScheduleIcon />, badge: optimizedRoutes.length > 0 ? optimizedRoutes.length : null },
-    { id: 'map', label: '地図表示', icon: <MapIcon /> },
-    { id: 'weather', label: '気象情報', icon: <WeatherIcon /> },
-    { id: 'statistics', label: '統計・分析', icon: <StatisticsIcon /> },
-    { id: 'settings', label: '設定', icon: <SettingsIcon /> }
-  ];
-
   // ========== Render Functions ==========
   const renderContent = () => {
     switch (currentView) {
+      case 'tour-info': // 🆕 ツアー情報ページ
+        return (
+          <TourInfo
+            guests={guests}
+            vehicles={vehicles}
+            tourData={tourData}
+            onGuestsUpdate={handleGuestsUpdate}
+            onVehiclesUpdate={handleVehiclesUpdate}
+            onTourDataUpdate={handleTourDataUpdate}
+            onOptimizationReady={handleOptimizationReady}
+            environmentalData={environmentalData}
+          />
+        );
+        
       case 'guests':
         return (
           <GuestManager
@@ -566,17 +570,16 @@ const App = () => {
       case 'optimizer':
         return (
           <RouteOptimizer
-            guests={guests}
-            vehicles={vehicles}
+            guests={selectedTourGuests.length > 0 ? selectedTourGuests : guests}
+            vehicles={selectedTourVehicles.length > 0 ? selectedTourVehicles : vehicles}
             tourData={tourData}
             environmentalData={environmentalData}
             optimizedRoutes={optimizedRoutes}
             isLoading={loading}
-            onOptimizationComplete={handleRouteOptimizerComplete}  // 🔧 新しいコールバック
-            onError={handleRouteOptimizerError}                    // 🔧 エラーハンドラー
+            onOptimizationComplete={handleRouteOptimizerComplete}
+            onError={handleRouteOptimizerError}
             onTourDataUpdate={handleTourDataUpdate}
             onClearRoutes={handleClearOptimizedRoutes}
-            // 既存互換性のためのprops
             onOptimize={handleOptimizeRoute}
           />
         );
@@ -590,7 +593,7 @@ const App = () => {
             vehicles={vehicles}
             environmentalData={environmentalData}
             onExport={handleExportSchedule}
-            onOptimizationUpdate={handleRouteOptimizerComplete}  // 🔧 FinalScheduleからも最適化可能
+            onOptimizationUpdate={handleRouteOptimizerComplete}
           />
         );
       
@@ -613,7 +616,7 @@ const App = () => {
           <EnvironmentalDataDisplay
             data={environmentalData}
             tourData={tourData}
-            onRefresh={() => loadEnvironmentalData()}
+            onRefresh={fetchEnvironmentalData}
           />
         );
       
@@ -623,7 +626,6 @@ const App = () => {
             guests={guests}
             vehicles={vehicles}
             optimizedRoutes={optimizedRoutes}
-            tourData={tourData}
             statistics={statistics}
             environmentalData={environmentalData}
           />
@@ -633,41 +635,66 @@ const App = () => {
         return (
           <Settings
             settings={settings}
-            onUpdate={handleSettingsUpdate}
+            onSettingsUpdate={(newSettings) => {
+              setSettings(newSettings);
+              saveToStorage('settings', newSettings);
+            }}
             systemStatus={systemStatus}
-            onSystemCheck={checkSystemStatus}
+            onSystemRefresh={checkSystemStatus}
           />
         );
       
       default:
-        return <div>ページが見つかりません</div>;
+        return (
+          <Box sx={{ textAlign: 'center', py: 8 }}>
+            <Typography variant="h5" gutterBottom>
+              ページが見つかりません
+            </Typography>
+            <Button 
+              variant="contained" 
+              onClick={() => setCurrentView('tour-info')}
+            >
+              ツアー情報に戻る
+            </Button>
+          </Box>
+        );
     }
   };
 
-  // ========== Main Render ==========
   return (
     <ThemeProvider theme={theme}>
       <CssBaseline />
-      <Box sx={{ display: 'flex' }}>
-        {/* App Bar */}
+      <Box sx={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
+        {/* AppBar */}
         <AppBar position="fixed" sx={{ zIndex: theme.zIndex.drawer + 1 }}>
           <Toolbar>
             <IconButton
               color="inherit"
               aria-label="open drawer"
-              onClick={() => setDrawerOpen(true)}
               edge="start"
+              onClick={() => setDrawerOpen(true)}
               sx={{ mr: 2 }}
             >
               <MenuIcon />
             </IconButton>
-            
+
             <Typography variant="h6" noWrap component="div" sx={{ flexGrow: 1 }}>
-              🏝️ 石垣島ツアー管理システム v2.4.1
+              🏝️ 石垣島ツアー管理システム v2.5.0
             </Typography>
-            
+
             <Stack direction="row" spacing={1} alignItems="center">
-              {/* システムステータス */}
+              {/* 🆕 ツアー情報完了状態表示 */}
+              {currentView === 'tour-info' && (
+                <Chip
+                  icon={<TourInfoIcon />}
+                  label="ツアー設定中"
+                  size="small"
+                  color="primary"
+                  variant="outlined"
+                  sx={{ color: 'white', borderColor: 'white' }}
+                />
+              )}
+              
               <Chip
                 label={systemStatus.status === 'online' ? 'システム: online' : 'システム: offline'}
                 color={systemStatus.status === 'online' ? 'success' : 'error'}
@@ -676,7 +703,6 @@ const App = () => {
                 sx={{ color: 'white', borderColor: 'white' }}
               />
               
-              {/* 環境データ表示 */}
               {environmentalData && (
                 <Chip
                   icon={<WeatherIcon />}
@@ -687,7 +713,6 @@ const App = () => {
                 />
               )}
               
-              {/* 更新ボタン */}
               <IconButton
                 color="inherit"
                 onClick={() => window.location.reload()}
@@ -715,7 +740,46 @@ const App = () => {
           <Toolbar />
           <Box sx={{ overflow: 'auto' }}>
             <List>
-              {menuItems.map((item) => (
+              {/* 🆕 優先表示項目 */}
+              {menuItems.filter(item => item.priority).map((item) => (
+                <ListItem
+                  button
+                  key={item.id}
+                  onClick={() => {
+                    setCurrentView(item.id);
+                    setDrawerOpen(false);
+                  }}
+                  selected={currentView === item.id}
+                  sx={{ 
+                    bgcolor: currentView === item.id ? 'primary.light' : 'inherit',
+                    '&:hover': { bgcolor: 'primary.light' }
+                  }}
+                >
+                  <ListItemIcon>
+                    {item.badge ? (
+                      <Badge badgeContent={item.badge} color="error">
+                        {item.icon}
+                      </Badge>
+                    ) : (
+                      item.icon
+                    )}
+                  </ListItemIcon>
+                  <ListItemText 
+                    primary={item.label}
+                    primaryTypographyProps={{
+                      fontWeight: currentView === item.id ? 'bold' : 'normal'
+                    }}
+                  />
+                </ListItem>
+              ))}
+
+              <Divider sx={{ my: 1 }} />
+
+              {/* メイン機能 */}
+              <Typography variant="overline" sx={{ px: 2, color: 'text.secondary' }}>
+                メイン機能
+              </Typography>
+              {menuItems.filter(item => !item.priority && !item.isResource).map((item) => (
                 <ListItem
                   button
                   key={item.id}
@@ -727,64 +791,88 @@ const App = () => {
                 >
                   <ListItemIcon>
                     {item.badge ? (
-                      <Badge badgeContent={item.badge} color="primary">
+                      <Badge badgeContent={item.badge} color="error">
                         {item.icon}
                       </Badge>
                     ) : (
                       item.icon
                     )}
                   </ListItemIcon>
-                  <ListItemText primary={item.label} />
+                  <ListItemText 
+                    primary={item.label}
+                    primaryTypographyProps={{
+                      fontWeight: currentView === item.id ? 'bold' : 'normal'
+                    }}
+                  />
+                </ListItem>
+              ))}
+
+              <Divider sx={{ my: 1 }} />
+
+              {/* リソース管理 */}
+              <Typography variant="overline" sx={{ px: 2, color: 'text.secondary' }}>
+                リソース管理
+              </Typography>
+              {menuItems.filter(item => item.isResource).map((item) => (
+                <ListItem
+                  button
+                  key={item.id}
+                  onClick={() => {
+                    setCurrentView(item.id);
+                    setDrawerOpen(false);
+                  }}
+                  selected={currentView === item.id}
+                >
+                  <ListItemIcon>
+                    {item.badge ? (
+                      <Badge badgeContent={item.badge} color="error">
+                        {item.icon}
+                      </Badge>
+                    ) : (
+                      item.icon
+                    )}
+                  </ListItemIcon>
+                  <ListItemText 
+                    primary={item.label}
+                    primaryTypographyProps={{
+                      fontWeight: currentView === item.id ? 'bold' : 'normal',
+                      color: 'text.secondary'
+                    }}
+                  />
                 </ListItem>
               ))}
             </List>
-            
+
             <Divider />
-            
+
             {/* システム情報 */}
-            <List>
-              <ListItem>
-                <ListItemText
-                  primary="システム情報"
-                  secondary={`v2.4.1 - Phase 4B+ 修正版`}
-                  primaryTypographyProps={{ variant: 'caption' }}
-                  secondaryTypographyProps={{ variant: 'caption' }}
-                />
-              </ListItem>
-            </List>
+            <Box sx={{ p: 2, mt: 'auto' }}>
+              <Typography variant="caption" color="text.secondary">
+                システム情報
+              </Typography>
+              <Typography variant="body2">
+                v2.5.0 - Smart AI Edition
+              </Typography>
+              <Typography variant="caption" color="text.secondary">
+                Phase 5A: ツアー情報統合版
+              </Typography>
+            </Box>
           </Box>
         </Drawer>
 
         {/* Main Content */}
-        <Box
-          component="main"
-          sx={{
-            flexGrow: 1,
-            bgcolor: 'background.default',
-            minHeight: '100vh',
-          }}
-        >
+        <Box component="main" sx={{ flexGrow: 1, bgcolor: 'background.default' }}>
           <Toolbar />
           
           {loading && (
-            <Box sx={{ 
-              position: 'fixed', 
-              top: 64, 
-              left: 0, 
-              right: 0, 
-              zIndex: 1300,
-              bgcolor: 'rgba(0,0,0,0.1)',
-              display: 'flex',
-              justifyContent: 'center',
-              alignItems: 'center',
-              p: 2
-            }}>
-              <CircularProgress size={24} sx={{ mr: 1 }} />
-              <Typography>処理中...</Typography>
+            <Box sx={{ position: 'fixed', top: 0, left: 0, right: 0, zIndex: 9999 }}>
+              <LinearProgress />
             </Box>
           )}
-          
-          {renderContent()}
+
+          <Container maxWidth="xl" sx={{ py: 2 }}>
+            {renderContent()}
+          </Container>
         </Box>
 
         {/* Alert Snackbar */}
@@ -794,12 +882,7 @@ const App = () => {
           onClose={handleCloseAlert}
           anchorOrigin={{ vertical: 'bottom', horizontal: 'left' }}
         >
-          <Alert
-            onClose={handleCloseAlert}
-            severity={alert.severity}
-            variant="filled"
-            sx={{ width: '100%' }}
-          >
+          <Alert onClose={handleCloseAlert} severity={alert.severity} sx={{ width: '100%' }}>
             {alert.message}
           </Alert>
         </Snackbar>

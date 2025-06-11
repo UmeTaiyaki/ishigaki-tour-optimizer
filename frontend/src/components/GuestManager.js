@@ -1,11 +1,12 @@
-// GuestManager.js - データ永続化対応版
+// GuestManager.js - リソース管理特化版（ツアー基本情報削除）
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   Box, Card, CardContent, Typography, Grid, Button, TextField,
   Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
   Paper, Dialog, DialogTitle, DialogContent, DialogActions,
   IconButton, Chip, Alert, Divider, Stack, FormControl, InputLabel, 
-  Select, MenuItem, Autocomplete, Tooltip, Badge, LinearProgress
+  Select, MenuItem, Autocomplete, Tooltip, Badge, LinearProgress,
+  CircularProgress
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -22,7 +23,9 @@ import {
   Upload as UploadIcon,
   Refresh as RefreshIcon,
   Map as MapIcon,
-  Save as SaveIcon
+  Save as SaveIcon,
+  Storage as StorageIcon,
+  Assessment as AssessmentIcon
 } from '@mui/icons-material';
 
 // 石垣島の主要ホテル・宿泊施設データ
@@ -55,7 +58,7 @@ const GuestManager = ({
   const [currentGuest, setCurrentGuest] = useState({
     id: '',
     name: '',
-    hotel: '', // 互換性のためhotelとhotel_nameの両方をサポート
+    hotel: '',
     hotel_name: '',
     pickup_lat: 24.3336,
     pickup_lng: 124.1543,
@@ -65,13 +68,6 @@ const GuestManager = ({
     phone: '',
     email: '',
     notes: ''
-  });
-  const [localTourData, setLocalTourData] = useState({
-    date: new Date().toISOString().split('T')[0],
-    activityType: 'シュノーケリング',
-    startTime: '09:00',
-    activityLocation: '川平湾',
-    ...tourData
   });
   const [loading, setLoading] = useState(false);
   const [errors, setErrors] = useState({});
@@ -104,11 +100,6 @@ const GuestManager = ({
       setLocalGuests(guests);
     }
   }, [guests]);
-
-  // ツアーデータの同期
-  useEffect(() => {
-    setLocalTourData(prev => ({ ...prev, ...tourData }));
-  }, [tourData]);
 
   // ゲストデータをローカルストレージに保存
   const saveToLocalStorage = useCallback((guestData) => {
@@ -292,15 +283,6 @@ const GuestManager = ({
     }
   };
 
-  // ツアーデータ更新
-  const handleTourDataChange = (field, value) => {
-    const newTourData = { ...localTourData, [field]: value };
-    setLocalTourData(newTourData);
-    if (onTourDataUpdate) {
-      onTourDataUpdate(newTourData);
-    }
-  };
-
   // データリフレッシュ
   const handleRefreshData = () => {
     const savedGuests = localStorage.getItem(STORAGE_KEY);
@@ -344,7 +326,7 @@ const GuestManager = ({
     const url = window.URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `guests_${localTourData.date}.csv`;
+    link.download = `guests_master_${new Date().toISOString().split('T')[0]}.csv`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -372,195 +354,146 @@ const GuestManager = ({
 
   return (
     <Box sx={{ p: 2 }}>
-      {/* ツアー基本情報 */}
-      <Card sx={{ mb: 3 }}>
-        <CardContent>
-          <Typography variant="h6" gutterBottom>
-            ツアー基本情報
-          </Typography>
-          <Grid container spacing={2}>
-            <Grid item xs={12} md={3}>
-              <TextField
-                fullWidth
-                label="ツアー日付"
-                type="date"
-                value={localTourData.date}
-                onChange={(e) => handleTourDataChange('date', e.target.value)}
-                InputLabelProps={{ shrink: true }}
-              />
-            </Grid>
-            <Grid item xs={12} md={3}>
-              <FormControl fullWidth>
-                <InputLabel>アクティビティ</InputLabel>
-                <Select
-                  value={localTourData.activityType}
-                  onChange={(e) => handleTourDataChange('activityType', e.target.value)}
-                  label="アクティビティ"
-                >
-                  <MenuItem value="シュノーケリング">シュノーケリング</MenuItem>
-                  <MenuItem value="ダイビング">ダイビング</MenuItem>
-                  <MenuItem value="観光ドライブ">観光ドライブ</MenuItem>
-                  <MenuItem value="川平湾クルーズ">川平湾クルーズ</MenuItem>
-                </Select>
-              </FormControl>
-            </Grid>
-            <Grid item xs={12} md={3}>
-              <TextField
-                fullWidth
-                label="集合時刻"
-                type="time"
-                value={localTourData.startTime}
-                onChange={(e) => handleTourDataChange('startTime', e.target.value)}
-                InputLabelProps={{ shrink: true }}
-              />
-            </Grid>
-            <Grid item xs={12} md={3}>
-              <TextField
-                fullWidth
-                label="集合場所"
-                value={localTourData.activityLocation}
-                onChange={(e) => handleTourDataChange('activityLocation', e.target.value)}
-                placeholder="川平湾"
-              />
-            </Grid>
-          </Grid>
-        </CardContent>
-      </Card>
-
-      {/* 環境情報表示 */}
-      {environmentalData && (
-        <Alert severity="info" sx={{ mb: 2, display: 'flex', alignItems: 'center' }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-            <Chip icon={<span>☀️</span>} label={environmentalData.weather || '晴れ'} variant="outlined" />
-            <Chip icon={<span>🌡️</span>} label={`${environmentalData.temperature || 29}°C`} variant="outlined" />
-            <Chip icon={<span>🌊</span>} label={`潮汐: ${environmentalData.tide_level || 21}m`} variant="outlined" />
-            <Chip icon={<span>💨</span>} label={`風速: ${environmentalData.wind_speed || 20}m/s`} variant="outlined" />
-          </Box>
-        </Alert>
-      )}
-
-      {/* 統計情報 */}
-      <Grid container spacing={2} sx={{ mb: 3 }}>
-        <Grid item xs={6} md={3}>
-          <Card>
-            <CardContent sx={{ textAlign: 'center' }}>
-              <Typography variant="h4" color="primary">{localGuests.length}</Typography>
-              <Typography variant="body2" color="text.secondary">総ゲスト数</Typography>
-            </CardContent>
-          </Card>
-        </Grid>
-        <Grid item xs={6} md={3}>
-          <Card>
-            <CardContent sx={{ textAlign: 'center' }}>
-              <Typography variant="h4" color="primary">{totalPeople}名</Typography>
-              <Typography variant="body2" color="text.secondary">総人数</Typography>
-            </CardContent>
-          </Card>
-        </Grid>
-        <Grid item xs={6} md={3}>
-          <Card>
-            <CardContent sx={{ textAlign: 'center' }}>
-              <Typography variant="h4" color="primary">{Object.keys(areaDistribution).length}</Typography>
-              <Typography variant="body2" color="text.secondary">エリア数</Typography>
-            </CardContent>
-          </Card>
-        </Grid>
-        <Grid item xs={6} md={3}>
-          <Card>
-            <CardContent sx={{ textAlign: 'center' }}>
-              <Typography variant="h4" color="primary">{Math.max(...Object.values(areaDistribution), 0)}名</Typography>
-              <Typography variant="body2" color="text.secondary">最大グループ</Typography>
-            </CardContent>
-          </Card>
-        </Grid>
-      </Grid>
-
-      {/* エリア別ゲスト分布 */}
-      <Card sx={{ mb: 3 }}>
-        <CardContent>
-          <Typography variant="h6" gutterBottom>
-            エリア別ゲスト分布
-          </Typography>
-          <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-            {Object.entries(areaDistribution).map(([area, count]) => (
-              <Chip 
-                key={area} 
-                label={`${area}: ${count}組`} 
-                variant="outlined" 
-                size="small"
-              />
-            ))}
-            {Object.keys(areaDistribution).length === 0 && (
-              <Typography variant="body2" color="text.secondary">
-                ゲストが登録されていません
-              </Typography>
-            )}
-          </Box>
-        </CardContent>
-      </Card>
-
-      {/* コントロールボタン */}
-      <Box sx={{ mb: 3, display: 'flex', gap: 2, alignItems: 'center' }}>
-        <Button
-          variant="contained"
-          startIcon={<AddIcon />}
-          onClick={handleAddGuest}
-        >
-          ゲスト追加
-        </Button>
-        <Button
-          variant="outlined"
-          startIcon={<DownloadIcon />}
-          onClick={handleExportCSV}
-          disabled={localGuests.length === 0}
-        >
-          エクスポート
-        </Button>
-        <Button
-          variant="outlined"
-          startIcon={<RefreshIcon />}
-          onClick={handleRefreshData}
-        >
-          リフレッシュ
-        </Button>
-        <Box sx={{ flexGrow: 1 }} />
-        <Typography variant="body2" color="text.secondary">
-          最終更新: {localGuests.length > 0 ? new Date().toLocaleTimeString() : '未更新'}
+      {/* ヘッダー */}
+      <Box sx={{ mb: 3 }}>
+        <Typography variant="h4" gutterBottom sx={{ display: 'flex', alignItems: 'center' }}>
+          <StorageIcon sx={{ mr: 2, color: 'primary.main' }} />
+          ゲストマスタ管理
+        </Typography>
+        <Typography variant="body1" color="text.secondary">
+          顧客データベースの管理・編集を行います。ツアー実行時は「ツアー情報」ページで参加者を選択してください。
         </Typography>
       </Box>
 
-      {/* ゲスト一覧 */}
+      {/* 統計情報 */}
+      <Card sx={{ mb: 3 }}>
+        <CardContent>
+          <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center' }}>
+            <AssessmentIcon sx={{ mr: 1 }} />
+            データベース統計
+          </Typography>
+          <Grid container spacing={3}>
+            <Grid item xs={6} sm={3}>
+              <Box sx={{ textAlign: 'center' }}>
+                <Typography variant="h4" color="primary">
+                  {localGuests.length}
+                </Typography>
+                <Typography variant="body2" color="text.secondary">
+                  登録ゲスト数
+                </Typography>
+              </Box>
+            </Grid>
+            <Grid item xs={6} sm={3}>
+              <Box sx={{ textAlign: 'center' }}>
+                <Typography variant="h4" color="secondary">
+                  {totalPeople}
+                </Typography>
+                <Typography variant="body2" color="text.secondary">
+                  総人数
+                </Typography>
+              </Box>
+            </Grid>
+            <Grid item xs={6} sm={3}>
+              <Box sx={{ textAlign: 'center' }}>
+                <Typography variant="h4" color="success.main">
+                  {Object.keys(areaDistribution).length}
+                </Typography>
+                <Typography variant="body2" color="text.secondary">
+                  宿泊エリア数
+                </Typography>
+              </Box>
+            </Grid>
+            <Grid item xs={6} sm={3}>
+              <Box sx={{ textAlign: 'center' }}>
+                <Typography variant="h4" color="warning.main">
+                  {(totalPeople / Math.max(localGuests.length, 1)).toFixed(1)}
+                </Typography>
+                <Typography variant="body2" color="text.secondary">
+                  平均人数/組
+                </Typography>
+              </Box>
+            </Grid>
+          </Grid>
+
+          {Object.keys(areaDistribution).length > 0 && (
+            <Box sx={{ mt: 2 }}>
+              <Typography variant="subtitle2" gutterBottom>
+                エリア別分布:
+              </Typography>
+              <Stack direction="row" spacing={1} flexWrap="wrap">
+                {Object.entries(areaDistribution).map(([area, count]) => (
+                  <Chip 
+                    key={area} 
+                    label={`${area}: ${count}組`} 
+                    size="small" 
+                    variant="outlined" 
+                  />
+                ))}
+              </Stack>
+            </Box>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* 操作パネル */}
+      <Card sx={{ mb: 3 }}>
+        <CardContent>
+          <Stack direction="row" spacing={2} alignItems="center" flexWrap="wrap">
+            <Button
+              variant="contained"
+              startIcon={<AddIcon />}
+              onClick={handleAddGuest}
+            >
+              新規ゲスト追加
+            </Button>
+            
+            <Button
+              variant="outlined"
+              startIcon={<RefreshIcon />}
+              onClick={handleRefreshData}
+            >
+              データ更新
+            </Button>
+            
+            <Button
+              variant="outlined"
+              startIcon={<DownloadIcon />}
+              onClick={handleExportCSV}
+              disabled={localGuests.length === 0}
+            >
+              CSVエクスポート
+            </Button>
+            
+            <Box sx={{ flexGrow: 1 }} />
+            
+            <Chip 
+              icon={<PersonIcon />}
+              label={`${localGuests.length}組 (${totalPeople}名)`}
+              color="primary"
+              variant="outlined"
+            />
+          </Stack>
+        </CardContent>
+      </Card>
+
+      {/* ゲストリスト */}
       <Card>
         <CardContent>
           <Typography variant="h6" gutterBottom>
-            ゲスト一覧
+            登録ゲスト一覧
           </Typography>
           
           {localGuests.length === 0 ? (
-            <Box sx={{ textAlign: 'center', py: 4 }}>
-              <PersonIcon sx={{ fontSize: 48, color: 'text.secondary', mb: 2 }} />
-              <Typography variant="h6" color="text.secondary" gutterBottom>
-                ゲストが登録されていません
-              </Typography>
-              <Typography variant="body2" color="text.secondary" gutterBottom>
-                「ゲスト追加」ボタンから最初のゲストを登録してください
-              </Typography>
-              <Button 
-                variant="contained" 
-                startIcon={<AddIcon />} 
-                onClick={handleAddGuest}
-                sx={{ mt: 2 }}
-              >
-                最初のゲストを追加
-              </Button>
-            </Box>
+            <Alert severity="info" sx={{ mt: 2 }}>
+              登録されたゲストがありません。「新規ゲスト追加」ボタンからゲストを追加してください。
+            </Alert>
           ) : (
-            <TableContainer component={Paper}>
+            <TableContainer component={Paper} sx={{ mt: 2 }}>
               <Table>
                 <TableHead>
                   <TableRow>
-                    <TableCell>名前</TableCell>
-                    <TableCell>ホテル</TableCell>
+                    <TableCell>ゲスト名</TableCell>
+                    <TableCell>ホテル名</TableCell>
                     <TableCell align="center">人数</TableCell>
                     <TableCell>希望時間</TableCell>
                     <TableCell>連絡先</TableCell>
@@ -568,84 +501,107 @@ const GuestManager = ({
                   </TableRow>
                 </TableHead>
                 <TableBody>
-                  {localGuests.map((guest, index) => {
-                    const hotelName = guest.hotel_name || guest.hotel || '-';
-                    const hotel = ISHIGAKI_HOTELS.find(h => h.name === hotelName);
-                    
-                    return (
-                      <TableRow key={guest.id || index}>
-                        <TableCell>
-                          <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                            <PersonIcon sx={{ mr: 1, color: 'primary.main' }} />
-                            {guest.name}
-                          </Box>
-                        </TableCell>
-                        <TableCell>
+                  {localGuests.map((guest, index) => (
+                    <TableRow key={guest.id || index} hover>
+                      <TableCell>
+                        <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                          <PersonIcon sx={{ mr: 1, color: 'primary.main' }} />
                           <Box>
-                            <Typography variant="body2">
-                              {hotelName}
+                            <Typography variant="body2" fontWeight="bold">
+                              {guest.name}
                             </Typography>
-                            {hotel && (
+                            {guest.notes && (
                               <Typography variant="caption" color="text.secondary">
-                                {hotel.area}エリア
+                                {guest.notes}
                               </Typography>
                             )}
                           </Box>
-                        </TableCell>
-                        <TableCell align="center">
-                          <Chip 
-                            label={`${guest.people}名`} 
-                            size="small" 
-                            color="primary" 
-                            variant="outlined"
-                          />
-                        </TableCell>
-                        <TableCell>
+                        </Box>
+                      </TableCell>
+                      
+                      <TableCell>
+                        <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                          <HotelIcon sx={{ mr: 1, color: 'secondary.main' }} />
+                          <Box>
+                            <Typography variant="body2">
+                              {guest.hotel_name || guest.hotel}
+                            </Typography>
+                            {(() => {
+                              const hotel = ISHIGAKI_HOTELS.find(h => h.name === (guest.hotel_name || guest.hotel));
+                              return hotel ? (
+                                <Typography variant="caption" color="text.secondary">
+                                  {hotel.area}エリア
+                                </Typography>
+                              ) : null;
+                            })()}
+                          </Box>
+                        </Box>
+                      </TableCell>
+                      
+                      <TableCell align="center">
+                        <Chip 
+                          icon={<GroupsIcon />}
+                          label={`${guest.people || 1}名`}
+                          size="small"
+                          color="primary"
+                          variant="outlined"
+                        />
+                      </TableCell>
+                      
+                      <TableCell>
+                        <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                          <TimeIcon sx={{ mr: 1, color: 'success.main' }} />
                           <Typography variant="body2">
                             {guest.preferred_pickup_start} - {guest.preferred_pickup_end}
                           </Typography>
-                        </TableCell>
-                        <TableCell>
-                          <Box>
-                            {guest.phone && (
-                              <Box sx={{ display: 'flex', alignItems: 'center', mb: 0.5 }}>
-                                <PhoneIcon sx={{ fontSize: 16, mr: 0.5 }} />
-                                <Typography variant="caption">{guest.phone}</Typography>
-                              </Box>
-                            )}
-                            {guest.email && (
-                              <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                                <EmailIcon sx={{ fontSize: 16, mr: 0.5 }} />
-                                <Typography variant="caption">{guest.email}</Typography>
-                              </Box>
-                            )}
-                          </Box>
-                        </TableCell>
-                        <TableCell align="center">
-                          <Stack direction="row" spacing={1}>
-                            <Tooltip title="編集">
-                              <IconButton
-                                size="small"
-                                onClick={() => handleEditGuest(index)}
-                                color="primary"
-                              >
-                                <EditIcon />
-                              </IconButton>
-                            </Tooltip>
-                            <Tooltip title="削除">
-                              <IconButton
-                                size="small"
-                                onClick={() => handleDeleteGuest(index)}
-                                color="error"
-                              >
-                                <DeleteIcon />
-                              </IconButton>
-                            </Tooltip>
-                          </Stack>
-                        </TableCell>
-                      </TableRow>
-                    );
-                  })}
+                        </Box>
+                      </TableCell>
+                      
+                      <TableCell>
+                        <Stack spacing={0.5}>
+                          {guest.phone && (
+                            <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                              <PhoneIcon sx={{ mr: 0.5, fontSize: 16, color: 'text.secondary' }} />
+                              <Typography variant="caption">
+                                {guest.phone}
+                              </Typography>
+                            </Box>
+                          )}
+                          {guest.email && (
+                            <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                              <EmailIcon sx={{ mr: 0.5, fontSize: 16, color: 'text.secondary' }} />
+                              <Typography variant="caption">
+                                {guest.email}
+                              </Typography>
+                            </Box>
+                          )}
+                        </Stack>
+                      </TableCell>
+                      
+                      <TableCell align="center">
+                        <Stack direction="row" spacing={1}>
+                          <Tooltip title="編集">
+                            <IconButton 
+                              size="small" 
+                              color="primary"
+                              onClick={() => handleEditGuest(index)}
+                            >
+                              <EditIcon />
+                            </IconButton>
+                          </Tooltip>
+                          <Tooltip title="削除">
+                            <IconButton 
+                              size="small" 
+                              color="error"
+                              onClick={() => handleDeleteGuest(index)}
+                            >
+                              <DeleteIcon />
+                            </IconButton>
+                          </Tooltip>
+                        </Stack>
+                      </TableCell>
+                    </TableRow>
+                  ))}
                 </TableBody>
               </Table>
             </TableContainer>
@@ -653,26 +609,20 @@ const GuestManager = ({
         </CardContent>
       </Card>
 
-      {/* ゲスト追加・編集ダイアログ */}
-      <Dialog
-        open={open}
-        onClose={() => setOpen(false)}
-        maxWidth="md"
-        fullWidth
-      >
+      {/* ゲスト編集ダイアログ */}
+      <Dialog open={open} onClose={() => setOpen(false)} maxWidth="md" fullWidth>
         <DialogTitle>
-          <Box sx={{ display: 'flex', alignItems: 'center' }}>
-            <PersonIcon sx={{ mr: 1 }} />
-            {editingIndex >= 0 ? 'ゲスト情報編集' : 'ゲスト追加'}
-          </Box>
+          {editingIndex >= 0 ? 'ゲスト情報編集' : '新規ゲスト追加'}
         </DialogTitle>
         <DialogContent>
+          {loading && <LinearProgress sx={{ mb: 2 }} />}
+          
           {errors.general && (
             <Alert severity="error" sx={{ mb: 2 }}>
               {errors.general}
             </Alert>
           )}
-          
+
           <Grid container spacing={2} sx={{ mt: 1 }}>
             <Grid item xs={12} md={6}>
               <TextField
@@ -684,51 +634,51 @@ const GuestManager = ({
               />
               <ErrorDisplay field="name" />
             </Grid>
-            
+
             <Grid item xs={12} md={6}>
               <TextField
                 fullWidth
                 label="人数 *"
                 type="number"
-                inputProps={{ min: 1, max: 20 }}
                 value={currentGuest.people}
                 onChange={(e) => setCurrentGuest(prev => ({ ...prev, people: parseInt(e.target.value) || 1 }))}
+                inputProps={{ min: 1, max: 20 }}
                 error={!!errors.people}
               />
               <ErrorDisplay field="people" />
             </Grid>
-            
+
             <Grid item xs={12}>
               <Autocomplete
-                fullWidth
                 options={ISHIGAKI_HOTELS}
-                getOptionLabel={(option) => `${option.name} (${option.area})`}
+                getOptionLabel={(option) => `${option.name} (${option.area}エリア)`}
                 value={selectedHotel}
                 onChange={handleHotelChange}
                 renderInput={(params) => (
                   <TextField
                     {...params}
-                    label="ホテル・宿泊施設 *"
+                    label="ホテル名 *"
                     error={!!errors.hotel}
                   />
                 )}
                 renderOption={(props, option) => (
-                  <Box component="li" {...props}>
-                    <HotelIcon sx={{ mr: 1, color: 'primary.main' }} />
+                  <li {...props}>
                     <Box>
                       <Typography variant="body2">{option.name}</Typography>
-                      <Typography variant="caption" color="text.secondary">{option.area}エリア</Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        {option.area}エリア
+                      </Typography>
                     </Box>
-                  </Box>
+                  </li>
                 )}
               />
               <ErrorDisplay field="hotel" />
             </Grid>
-            
-            <Grid item xs={12} md={6}>
+
+            <Grid item xs={6}>
               <TextField
                 fullWidth
-                label="希望ピックアップ開始時刻"
+                label="希望開始時刻 *"
                 type="time"
                 value={currentGuest.preferred_pickup_start}
                 onChange={(e) => setCurrentGuest(prev => ({ ...prev, preferred_pickup_start: e.target.value }))}
@@ -736,17 +686,19 @@ const GuestManager = ({
                 error={!!errors.time}
               />
             </Grid>
-            
-            <Grid item xs={12} md={6}>
+
+            <Grid item xs={6}>
               <TextField
                 fullWidth
-                label="希望ピックアップ終了時刻"
+                label="希望終了時刻 *"
                 type="time"
                 value={currentGuest.preferred_pickup_end}
                 onChange={(e) => setCurrentGuest(prev => ({ ...prev, preferred_pickup_end: e.target.value }))}
                 InputLabelProps={{ shrink: true }}
                 error={!!errors.time}
               />
+            </Grid>
+            <Grid item xs={12}>
               <ErrorDisplay field="time" />
             </Grid>
 
@@ -756,7 +708,6 @@ const GuestManager = ({
                 label="電話番号"
                 value={currentGuest.phone}
                 onChange={(e) => setCurrentGuest(prev => ({ ...prev, phone: e.target.value }))}
-                placeholder="090-1234-5678"
                 error={!!errors.phone}
               />
               <ErrorDisplay field="phone" />
@@ -769,7 +720,6 @@ const GuestManager = ({
                 type="email"
                 value={currentGuest.email}
                 onChange={(e) => setCurrentGuest(prev => ({ ...prev, email: e.target.value }))}
-                placeholder="example@email.com"
                 error={!!errors.email}
               />
               <ErrorDisplay field="email" />
@@ -780,37 +730,25 @@ const GuestManager = ({
                 fullWidth
                 label="備考"
                 multiline
-                rows={3}
+                rows={2}
                 value={currentGuest.notes}
                 onChange={(e) => setCurrentGuest(prev => ({ ...prev, notes: e.target.value }))}
-                placeholder="特別な要望や注意事項があれば記入してください"
               />
             </Grid>
-
-            {selectedHotel && (
-              <Grid item xs={12}>
-                <Alert severity="info">
-                  <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                    <LocationIcon sx={{ mr: 1 }} />
-                    選択されたホテル: {selectedHotel.name} ({selectedHotel.area}エリア)
-                  </Box>
-                </Alert>
-              </Grid>
-            )}
           </Grid>
         </DialogContent>
         
         <DialogActions>
-          <Button onClick={() => setOpen(false)}>
+          <Button onClick={() => setOpen(false)} disabled={loading}>
             キャンセル
           </Button>
-          <Button
-            onClick={handleSaveGuest}
-            variant="contained"
+          <Button 
+            onClick={handleSaveGuest} 
+            variant="contained" 
             disabled={loading}
-            startIcon={loading ? <CircularProgress size={16} /> : <SaveIcon />}
+            startIcon={loading ? <CircularProgress size={20} /> : <SaveIcon />}
           >
-            {loading ? '保存中...' : '保存'}
+            {editingIndex >= 0 ? '更新' : '追加'}
           </Button>
         </DialogActions>
       </Dialog>

@@ -1,4 +1,4 @@
-// RouteOptimizer.js - 智能自動最適化システム（データ駆動型アルゴリズム選択）
+// RouteOptimizer.js - 動的時間決定システム対応版（完全版）
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   Box, Card, CardContent, Typography, Grid, Button, Stack,
@@ -38,167 +38,65 @@ import {
   Download as DownloadIcon,
   SmartToy as SmartIcon,
   Analytics as AnalyticsIcon,
-  Lightbulb as LightbulbIcon
+  Lightbulb as LightbulbIcon,
+  AccessTime as TimeIcon,
+  WbSunny as WeatherIcon,
+  Air as WindIcon,
+  Waves as WaveIcon,
+  Thermostat as TempIcon,
+  Visibility as VisIcon,
+  Security as SafetyIcon
 } from '@mui/icons-material';
 
 // コンポーネントインポート
 import AlgorithmComparisonDashboard from './AlgorithmComparisonDashboard';
 import * as api from '../api/client';
 
-// アルゴリズム設定
+// アルゴリズム設定（気象対応版）
 const ALGORITHM_CONFIGS = {
   genetic: {
     name: '遺伝的アルゴリズム',
     iconName: 'ScienceIcon',
     color: '#4caf50',
-    description: '進化的計算による高精度最適化',
+    description: '進化的計算による高精度最適化（気象対応）',
     expectedTime: '1-3秒',
     expectedEfficiency: '90%+',
-    strengths: ['高精度', '複雑問題対応', '大域的探索'],
+    strengths: ['高精度', '複雑問題対応', '気象統合'],
     bestFor: '複雑で高精度が必要な問題',
     parameters: {
       population_size: 40,
       generations: 75,
-      mutation_rate: 0.1,
-      crossover_rate: 0.8
+      dynamic_timing: true
     }
   },
   simulated_annealing: {
     name: 'シミュレーテッドアニーリング',
     iconName: 'MemoryIcon',
     color: '#ff9800',
-    description: '焼きなまし法によるバランス型最適化',
+    description: '焼きなまし法による動的時間最適化',
     expectedTime: '0.5-1秒',
     expectedEfficiency: '80-90%',
-    strengths: ['バランス', '安定性', '実用的速度'],
+    strengths: ['バランス', '安定性', '動的調整'],
     bestFor: '中規模で安定性重視の問題',
     parameters: {
       initial_temperature: 200,
       cooling_rate: 0.95,
-      max_iterations: 800
+      dynamic_timing: true
     }
   },
   nearest_neighbor: {
     name: '最近傍法',
     iconName: 'RouteIcon',
     color: '#2196f3',
-    description: '高速基本最適化アルゴリズム',
+    description: '高速基本最適化（気象考慮）',
     expectedTime: '0.1秒',
     expectedEfficiency: '75-85%',
     strengths: ['高速', 'シンプル', '安定'],
     bestFor: '小規模で速度重視の問題',
-    parameters: {}
-  }
-};
-
-// 🧠 智能アルゴリズム選択ロジック
-const analyzeOptimalAlgorithm = (guests, vehicles, tourData) => {
-  console.log('🧠 智能アルゴリズム分析開始...');
-  
-  const guestCount = guests.length;
-  const vehicleCount = vehicles.length;
-  const totalPeople = guests.reduce((sum, guest) => sum + (guest.num_people || 0), 0);
-  
-  // 複雑度計算
-  const complexityFactors = {
-    guestCount: guestCount,
-    vehicleCount: vehicleCount,
-    totalPeople: totalPeople,
-    avgPeoplePerGuest: totalPeople / guestCount,
-    vehicleUtilization: totalPeople / vehicles.reduce((sum, v) => sum + (v.capacity || 8), 0),
-    timeConstraints: guests.filter(g => g.preferred_pickup_start && g.preferred_pickup_end).length,
-    geographicSpread: calculateGeographicSpread(guests)
-  };
-  
-  // 複雑度スコア計算（0-100）
-  let complexityScore = 0;
-  
-  // ゲスト数による複雑度
-  if (guestCount <= 3) complexityScore += 10;
-  else if (guestCount <= 6) complexityScore += 30;
-  else if (guestCount <= 10) complexityScore += 60;
-  else complexityScore += 90;
-  
-  // 車両数による複雑度
-  if (vehicleCount <= 2) complexityScore += 5;
-  else if (vehicleCount <= 4) complexityScore += 15;
-  else complexityScore += 25;
-  
-  // 利用率による複雑度
-  if (complexityFactors.vehicleUtilization > 0.8) complexityScore += 20;
-  else if (complexityFactors.vehicleUtilization > 0.6) complexityScore += 10;
-  
-  // 時間制約による複雑度
-  if (complexityFactors.timeConstraints > guestCount * 0.7) complexityScore += 15;
-  
-  // 地理的分散による複雑度
-  if (complexityFactors.geographicSpread > 0.05) complexityScore += 10;
-  
-  // アルゴリズム選択ロジック
-  let selectedAlgorithm, reasoning;
-  
-  if (complexityScore >= 70) {
-    // 高複雑度 → 遺伝的アルゴリズム
-    selectedAlgorithm = 'genetic';
-    reasoning = '高複雑度問題のため、遺伝的アルゴリズムで高精度最適化を実行';
-  } else if (complexityScore >= 40) {
-    // 中複雑度 → シミュレーテッドアニーリング
-    selectedAlgorithm = 'simulated_annealing';
-    reasoning = '中程度の複雑度のため、シミュレーテッドアニーリングでバランス最適化';
-  } else {
-    // 低複雑度 → 最近傍法
-    selectedAlgorithm = 'nearest_neighbor';
-    reasoning = '低複雑度問題のため、最近傍法で高速最適化';
-  }
-  
-  const analysis = {
-    selectedAlgorithm,
-    complexityScore,
-    complexityFactors,
-    reasoning,
-    confidence: Math.min(95, 60 + complexityScore * 0.4),
-    expectedEfficiency: getExpectedEfficiency(selectedAlgorithm, complexityScore),
-    processingTime: ALGORITHM_CONFIGS[selectedAlgorithm].expectedTime
-  };
-  
-  console.log('🧠 智能分析結果:', analysis);
-  return analysis;
-};
-
-// 地理的分散計算
-const calculateGeographicSpread = (guests) => {
-  if (guests.length < 2) return 0;
-  
-  const distances = [];
-  for (let i = 0; i < guests.length; i++) {
-    for (let j = i + 1; j < guests.length; j++) {
-      const lat1 = guests[i].pickup_lat || 24.3336;
-      const lng1 = guests[i].pickup_lng || 124.1543;
-      const lat2 = guests[j].pickup_lat || 24.3336;
-      const lng2 = guests[j].pickup_lng || 124.1543;
-      
-      const distance = Math.sqrt(Math.pow(lat2 - lat1, 2) + Math.pow(lng2 - lng1, 2));
-      distances.push(distance);
+    parameters: {
+      dynamic_timing: true
     }
   }
-  
-  return distances.reduce((sum, d) => sum + d, 0) / distances.length;
-};
-
-// 期待効率計算
-const getExpectedEfficiency = (algorithm, complexityScore) => {
-  const baseEfficiency = {
-    genetic: 85,
-    simulated_annealing: 80,
-    nearest_neighbor: 75
-  };
-  
-  // 複雑度に応じた効率調整
-  const complexityBonus = algorithm === 'genetic' ? Math.min(10, complexityScore * 0.1) :
-                         algorithm === 'simulated_annealing' ? Math.min(8, complexityScore * 0.08) :
-                         Math.max(-5, -complexityScore * 0.05);
-  
-  return Math.round(baseEfficiency[algorithm] + complexityBonus);
 };
 
 // アイコン取得関数
@@ -238,6 +136,8 @@ const RouteOptimizer = ({
   const [optimizationHistory, setOptimizationHistory] = useState([]);
   const [isComparing, setIsComparing] = useState(false);
   const [comparisonResults, setComparisonResults] = useState(null);
+  const [weatherData, setWeatherData] = useState(null);
+  const [enableWeatherOptimization, setEnableWeatherOptimization] = useState(true);
   const [preOptimizationCheck, setPreOptimizationCheck] = useState({
     guestsValid: false,
     vehiclesValid: false,
@@ -248,6 +148,7 @@ const RouteOptimizer = ({
   // ========== Effects ==========
   useEffect(() => {
     initializeAiSystem();
+    fetchWeatherData();
   }, []);
 
   useEffect(() => {
@@ -257,15 +158,27 @@ const RouteOptimizer = ({
     }
   }, [guests, vehicles, tourData]);
 
+  // ========== 気象データ取得 ==========
+  const fetchWeatherData = async () => {
+    try {
+      const response = await api.getEnvironmentalData();
+      if (response.success) {
+        setWeatherData(response.data);
+        console.log('🌊 気象データ取得完了:', response.data);
+      }
+    } catch (error) {
+      console.error('気象データ取得エラー:', error);
+    }
+  };
+
   // ========== 智能分析実行 ==========
   const performSmartAnalysis = useCallback(async () => {
     setIsAnalyzing(true);
     
     try {
-      // 少し遅延を入れて分析感を演出
       await new Promise(resolve => setTimeout(resolve, 800));
       
-      const analysis = analyzeOptimalAlgorithm(guests, vehicles, tourData);
+      const analysis = analyzeOptimalAlgorithm(guests, vehicles, tourData, weatherData);
       setAlgorithmAnalysis(analysis);
       
       console.log('🎯 智能分析完了:', analysis);
@@ -274,45 +187,124 @@ const RouteOptimizer = ({
     } finally {
       setIsAnalyzing(false);
     }
-  }, [guests, vehicles, tourData]);
+  }, [guests, vehicles, tourData, weatherData]);
 
-  // ========== 共通データ修復関数 ==========
-  const repairVehicleData = useCallback((vehicleList) => {
-    return vehicleList.map((vehicle, index) => {
-      let safeLocation = vehicle.location;
-      
-      if (!safeLocation) {
-        safeLocation = { lat: 24.3336, lng: 124.1543 };
-        console.warn(`車両${vehicle.name || index}のlocationがnullです。デフォルト値を設定:`, safeLocation);
-      }
-      
-      if (typeof safeLocation === 'string') {
-        safeLocation = { lat: 24.3336, lng: 124.1543 };
-        console.warn(`車両${vehicle.name || index}のlocationが文字列です。デフォルト値を設定:`, safeLocation);
-      }
-      
-      if (typeof safeLocation.lat !== 'number' || typeof safeLocation.lng !== 'number') {
-        safeLocation = { lat: 24.3336, lng: 124.1543 };
-        console.warn(`車両${vehicle.name || index}のlat/lngが数値ではありません。デフォルト値を設定:`, safeLocation);
-      }
-      
-      return {
-        ...vehicle,
-        location: safeLocation
-      };
-    });
-  }, []);
-
-  const createRepairedTourData = useCallback(() => {
-    const repairedVehicles = repairVehicleData(vehicles);
+  // ========== 智能アルゴリズム選択ロジック（気象対応版） ==========
+  const analyzeOptimalAlgorithm = (guests, vehicles, tourData, weatherData) => {
+    console.log('🧠 智能アルゴリズム分析開始（気象統合版）...');
     
-    return {
-      ...tourData,
-      vehicles: repairedVehicles,
-      guests: guests || [],
-      activityLocation: tourData.activityLocation || { lat: 24.4167, lng: 124.1556 }
+    const guestCount = guests.length;
+    const vehicleCount = vehicles.length;
+    const totalPeople = guests.reduce((sum, guest) => sum + (guest.num_people || guest.people || 0), 0);
+    
+    // 基本複雑度計算
+    let complexityScore = 0;
+    
+    if (guestCount <= 3) complexityScore += 10;
+    else if (guestCount <= 6) complexityScore += 30;
+    else if (guestCount <= 10) complexityScore += 60;
+    else complexityScore += 90;
+    
+    if (vehicleCount <= 2) complexityScore += 5;
+    else if (vehicleCount <= 4) complexityScore += 15;
+    else complexityScore += 25;
+    
+    // 🆕 気象影響による複雑度調整
+    let weatherComplexity = 0;
+    let weatherReason = '標準気象条件';
+    
+    if (weatherData?.current_conditions) {
+      const conditions = weatherData.current_conditions;
+      const windSpeed = conditions.wind_speed || 15;
+      const waveHeight = conditions.wave_height || 1.0;
+      const visibility = conditions.visibility || '良好';
+      
+      if (windSpeed > 25 || waveHeight > 2.0) {
+        weatherComplexity += 20;
+        weatherReason = '悪天候による時間調整が必要';
+      } else if (windSpeed > 20 || waveHeight > 1.5) {
+        weatherComplexity += 10;
+        weatherReason = '気象条件による軽微な調整が必要';
+      } else if (windSpeed < 10 && waveHeight < 0.8) {
+        weatherComplexity -= 5;
+        weatherReason = '良好な気象条件で最適化が容易';
+      }
+      
+      if (visibility === '不良' || visibility === 'やや不良') {
+        weatherComplexity += 15;
+        weatherReason += '・視界不良による安全マージン追加';
+      }
+    }
+    
+    complexityScore += weatherComplexity;
+    
+    // 時間制約の複雑度
+    const timeConstraints = guests.filter(g => 
+      g.preferred_pickup_start && g.preferred_pickup_end
+    ).length;
+    
+    if (timeConstraints > guestCount * 0.7) complexityScore += 15;
+    
+    // 🆕 気象統合アルゴリズム選択
+    let selectedAlgorithm, reasoning;
+    
+    if (complexityScore >= 75) {
+      selectedAlgorithm = 'genetic';
+      reasoning = `高複雑度問題（スコア:${complexityScore}）のため、遺伝的アルゴリズムで動的時間決定を実行`;
+    } else if (complexityScore >= 45) {
+      selectedAlgorithm = 'simulated_annealing';
+      reasoning = `中程度の複雑度（スコア:${complexityScore}）のため、シミュレーテッドアニーリングで時間最適化`;
+    } else {
+      selectedAlgorithm = 'nearest_neighbor';
+      reasoning = `低複雑度問題（スコア:${complexityScore}）のため、最近傍法で高速気象考慮最適化`;
+    }
+    
+    // 気象による推奨調整
+    if (weatherComplexity > 15) {
+      reasoning += ` | 気象影響大：${weatherReason}`;
+    } else if (weatherComplexity > 0) {
+      reasoning += ` | 気象考慮：${weatherReason}`;
+    }
+    
+    const analysis = {
+      selectedAlgorithm,
+      complexityScore,
+      complexityFactors: {
+        guestCount,
+        vehicleCount,
+        totalPeople,
+        timeConstraints,
+        weatherComplexity,
+        weatherConditions: weatherData?.current_conditions || null
+      },
+      reasoning,
+      weatherReason,
+      confidence: Math.min(95, 60 + complexityScore * 0.4),
+      expectedEfficiency: getExpectedEfficiency(selectedAlgorithm, complexityScore, weatherComplexity),
+      processingTime: ALGORITHM_CONFIGS[selectedAlgorithm].expectedTime
     };
-  }, [tourData, vehicles, guests, repairVehicleData]);
+    
+    console.log('🧠 智能分析結果（気象統合）:', analysis);
+    return analysis;
+  };
+
+  // 期待効率計算（気象対応版）
+  const getExpectedEfficiency = (algorithm, complexityScore, weatherComplexity) => {
+    const baseEfficiency = {
+      genetic: 85,
+      simulated_annealing: 80,
+      nearest_neighbor: 75
+    };
+    
+    const complexityBonus = algorithm === 'genetic' ? Math.min(10, complexityScore * 0.1) :
+                           algorithm === 'simulated_annealing' ? Math.min(8, complexityScore * 0.08) :
+                           Math.max(-5, -complexityScore * 0.05);
+    
+    // 気象による効率調整
+    const weatherPenalty = Math.max(-5, -weatherComplexity * 0.3);
+    
+    return Math.round(baseEfficiency[algorithm] + complexityBonus + weatherPenalty);
+  };
 
   // ========== Core Functions ==========
   const initializeAiSystem = async () => {
@@ -354,7 +346,46 @@ const RouteOptimizer = ({
     });
   };
 
-  // ========== 🧠 智能最適化実行 ==========
+  // ========== データ修復関数 ==========
+  const repairVehicleData = useCallback((vehicleList) => {
+    return vehicleList.map((vehicle, index) => {
+      let safeLocation = vehicle.location;
+      
+      if (!safeLocation) {
+        safeLocation = { lat: 24.3336, lng: 124.1543 };
+        console.warn(`車両${vehicle.name || index}のlocationがnullです。デフォルト値を設定:`, safeLocation);
+      }
+      
+      if (typeof safeLocation === 'string') {
+        safeLocation = { lat: 24.3336, lng: 124.1543 };
+        console.warn(`車両${vehicle.name || index}のlocationが文字列です。デフォルト値を設定:`, safeLocation);
+      }
+      
+      if (typeof safeLocation.lat !== 'number' || typeof safeLocation.lng !== 'number') {
+        safeLocation = { lat: 24.3336, lng: 124.1543 };
+        console.warn(`車両${vehicle.name || index}のlat/lngが数値ではありません。デフォルト値を設定:`, safeLocation);
+      }
+      
+      return {
+        ...vehicle,
+        location: safeLocation
+      };
+    });
+  }, []);
+
+  const createRepairedTourData = useCallback(() => {
+    const repairedVehicles = repairVehicleData(vehicles);
+    
+    return {
+      ...tourData,
+      vehicles: repairedVehicles,
+      guests: guests || [],
+      activityLocation: tourData.activityLocation || { lat: 24.4167, lng: 124.1556 },
+      include_weather_optimization: enableWeatherOptimization
+    };
+  }, [tourData, vehicles, guests, repairVehicleData, enableWeatherOptimization]);
+
+  // ========== 🧠 智能最適化実行（気象対応版） ==========
   const executeSmartOptimization = async () => {
     if (!preOptimizationCheck.allValid) {
       alert('最適化を実行するには、ゲスト、車両、アクティビティ地点の設定が必要です');
@@ -369,7 +400,7 @@ const RouteOptimizer = ({
     const selectedAlgorithm = algorithmAnalysis.selectedAlgorithm;
     const repairedTourData = createRepairedTourData();
     
-    console.log(`🧠 智能最適化開始: ${selectedAlgorithm}`);
+    console.log(`🧠 智能最適化開始（気象統合）: ${selectedAlgorithm}`);
     console.log('🔧 修復後のtourData:', repairedTourData);
 
     setIsOptimizing(true);
@@ -378,7 +409,6 @@ const RouteOptimizer = ({
     setActiveStep(1);
 
     try {
-      // 進捗表示
       let progressInterval;
       if (selectedAlgorithm === 'genetic') {
         const config = ALGORITHM_CONFIGS[selectedAlgorithm];
@@ -402,7 +432,7 @@ const RouteOptimizer = ({
         setOptimizationResult(result);
         setActiveStep(2);
 
-        // 履歴追加
+        // 履歴追加（気象情報付き）
         const historyEntry = {
           timestamp: new Date().toISOString(),
           algorithm: selectedAlgorithm,
@@ -411,16 +441,16 @@ const RouteOptimizer = ({
           total_distance: result.total_distance,
           success: true,
           isSmartSelection: true,
-          analysisConfidence: algorithmAnalysis.confidence
+          analysisConfidence: algorithmAnalysis.confidence,
+          weatherIntegration: result.weather_integration?.enabled || false,
+          weatherConditions: result.weather_conditions
         };
         setOptimizationHistory(prev => [historyEntry, ...prev.slice(0, 9)]);
 
-        // 親コンポーネントに結果通知
         if (onOptimizationComplete) {
           onOptimizationComplete(result.routes, result);
         }
 
-        // 最新ログ取得
         setTimeout(async () => {
           try {
             const logs = await api.getOptimizationLogs(20);
@@ -449,7 +479,7 @@ const RouteOptimizer = ({
     }
   };
 
-  // ========== 比較実行（従来機能） ==========
+  // ========== 比較実行 ==========
   const executeComparison = async () => {
     if (!preOptimizationCheck.allValid) {
       alert('比較を実行するには、ゲスト、車両、アクティビティ地点の設定が必要です');
@@ -552,7 +582,136 @@ const RouteOptimizer = ({
     </Card>
   );
 
-  // 🧠 智能分析結果表示
+  // 🌊 気象データ表示
+  const renderWeatherStatus = () => {
+    if (!weatherData) return null;
+
+    const conditions = weatherData.current_conditions || {};
+    const marine = weatherData.marine_conditions || {};
+
+    const getWeatherSeverity = () => {
+      const windSpeed = conditions.wind_speed || 15;
+      const waveHeight = conditions.wave_height || 1.0;
+      
+      if (windSpeed > 25 || waveHeight > 2.0) return 'error';
+      if (windSpeed > 20 || waveHeight > 1.5) return 'warning';
+      return 'success';
+    };
+
+    return (
+      <Card sx={{ mb: 3 }}>
+        <CardContent>
+          <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center' }}>
+            <WeatherIcon sx={{ mr: 1, color: 'orange' }} />
+            現在の気象状況 - 動的時間決定対応
+            <FormControlLabel
+              control={
+                <Switch
+                  checked={enableWeatherOptimization}
+                  onChange={(e) => setEnableWeatherOptimization(e.target.checked)}
+                  size="small"
+                />
+              }
+              label="気象最適化"
+              sx={{ ml: 2 }}
+            />
+          </Typography>
+
+          <Grid container spacing={2}>
+            <Grid item xs={12} sm={6} md={3}>
+              <Box sx={{ textAlign: 'center', p: 1, bgcolor: 'primary.light', borderRadius: 1, color: 'white' }}>
+                <TempIcon sx={{ mb: 0.5 }} />
+                <Typography variant="h6">{conditions.temperature || 26}°C</Typography>
+                <Typography variant="caption">気温</Typography>
+              </Box>
+            </Grid>
+            <Grid item xs={12} sm={6} md={3}>
+              <Box sx={{ 
+                textAlign: 'center', 
+                p: 1, 
+                bgcolor: getWeatherSeverity() === 'error' ? 'error.light' : 
+                        getWeatherSeverity() === 'warning' ? 'warning.light' : 'info.light', 
+                borderRadius: 1, 
+                color: 'white' 
+              }}>
+                <WindIcon sx={{ mb: 0.5 }} />
+                <Typography variant="h6">{conditions.wind_speed || 15}km/h</Typography>
+                <Typography variant="caption">風速</Typography>
+              </Box>
+            </Grid>
+            <Grid item xs={12} sm={6} md={3}>
+              <Box sx={{ 
+                textAlign: 'center', 
+                p: 1, 
+                bgcolor: getWeatherSeverity() === 'error' ? 'error.light' : 
+                        getWeatherSeverity() === 'warning' ? 'warning.light' : 'secondary.light', 
+                borderRadius: 1, 
+                color: 'white' 
+              }}>
+                <WaveIcon sx={{ mb: 0.5 }} />
+                <Typography variant="h6">{conditions.wave_height || 1.0}m</Typography>
+                <Typography variant="caption">波高</Typography>
+              </Box>
+            </Grid>
+            <Grid item xs={12} sm={6} md={3}>
+              <Box sx={{ 
+                textAlign: 'center', 
+                p: 1, 
+                bgcolor: marine.activity_suitability === '優' || marine.activity_suitability === '適' ? 'success.light' : 
+                        marine.activity_suitability === '可' ? 'warning.light' : 'error.light', 
+                borderRadius: 1, 
+                color: 'white' 
+              }}>
+                <SafetyIcon sx={{ mb: 0.5 }} />
+                <Typography variant="h6">{marine.activity_suitability || '適'}</Typography>
+                <Typography variant="caption">活動適性</Typography>
+              </Box>
+            </Grid>
+          </Grid>
+
+          {/* 詳細気象情報 */}
+          <Grid container spacing={2} sx={{ mt: 1 }}>
+            <Grid item xs={12} sm={6}>
+              <Alert severity={getWeatherSeverity()} sx={{ mb: 1 }}>
+                <Typography variant="subtitle2">海況: {marine.sea_conditions || '穏やか'}</Typography>
+                <Typography variant="caption">
+                  視界: {conditions.visibility || '良好'} | 湿度: {conditions.humidity || 75}%
+                </Typography>
+              </Alert>
+            </Grid>
+            <Grid item xs={12} sm={6}>
+              <Alert severity="info">
+                <Typography variant="subtitle2">🕐 推奨出発時間</Typography>
+                <Typography variant="caption">
+                  {weatherData.activity_recommendations?.optimal_departure_time || '08:30-09:00'}
+                </Typography>
+              </Alert>
+            </Grid>
+          </Grid>
+
+          {conditions.visibility && conditions.visibility !== '良好' && (
+            <Alert severity="warning" sx={{ mt: 2 }}>
+              <Typography variant="subtitle2">⚠️ 気象注意事項</Typography>
+              <Typography variant="body2">
+                視界: {conditions.visibility} - 動的時間調整が適用されます
+              </Typography>
+            </Alert>
+          )}
+
+          {enableWeatherOptimization && (
+            <Alert severity="info" sx={{ mt: 2 }}>
+              <Typography variant="subtitle2">🌊 動的時間決定システム有効</Typography>
+              <Typography variant="body2">
+                気象条件に基づいて出発・到着時間が自動調整されます
+              </Typography>
+            </Alert>
+          )}
+        </CardContent>
+      </Card>
+    );
+  };
+
+  // 🧠 智能分析結果表示（気象統合版）
   const renderSmartAnalysis = () => {
     if (isAnalyzing) {
       return (
@@ -561,11 +720,11 @@ const RouteOptimizer = ({
             <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
               <CircularProgress size={24} sx={{ mr: 2 }} />
               <Typography variant="h6">
-                🧠 智能アルゴリズム分析中...
+                🧠 智能アルゴリズム分析中（気象統合）...
               </Typography>
             </Box>
             <Typography variant="body2" color="text.secondary">
-              データの複雑度を分析し、最適なアルゴリズムを選択しています
+              データの複雑度と気象条件を分析し、動的時間決定に最適なアルゴリズムを選択しています
             </Typography>
           </CardContent>
         </Card>
@@ -574,7 +733,7 @@ const RouteOptimizer = ({
 
     if (!algorithmAnalysis) return null;
 
-    const { selectedAlgorithm, reasoning, confidence, expectedEfficiency, complexityScore } = algorithmAnalysis;
+    const { selectedAlgorithm, reasoning, confidence, expectedEfficiency, complexityScore, weatherReason } = algorithmAnalysis;
     const config = ALGORITHM_CONFIGS[selectedAlgorithm];
 
     return (
@@ -582,7 +741,7 @@ const RouteOptimizer = ({
         <CardContent>
           <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center' }}>
             <SmartIcon sx={{ mr: 1, color: config.color }} />
-            🧠 AI推奨アルゴリズム
+            🧠 AI推奨アルゴリズム（動的時間決定）
             <Chip
               label={`信頼度 ${confidence.toFixed(0)}%`}
               size="small"
@@ -605,7 +764,14 @@ const RouteOptimizer = ({
                 <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
                   {reasoning}
                 </Typography>
-                <Stack direction="row" spacing={1}>
+                
+                {weatherReason && (
+                  <Alert severity="info" sx={{ mb: 1 }}>
+                    🌊 気象考慮: {weatherReason}
+                  </Alert>
+                )}
+                
+                <Stack direction="row" spacing={1} flexWrap="wrap">
                   <Chip 
                     label={`期待効率: ${expectedEfficiency}%`} 
                     size="small" 
@@ -624,6 +790,20 @@ const RouteOptimizer = ({
                     color="warning" 
                     variant="outlined" 
                   />
+                  <Chip 
+                    label="動的時間決定対応" 
+                    size="small" 
+                    color="primary" 
+                    variant="outlined" 
+                  />
+                  {algorithmAnalysis.complexityFactors.weatherComplexity > 0 && (
+                    <Chip 
+                      label="気象影響考慮" 
+                      size="small" 
+                      color="secondary" 
+                      variant="outlined" 
+                    />
+                  )}
                 </Stack>
               </Box>
 
@@ -671,11 +851,11 @@ const RouteOptimizer = ({
             </Grid>
           </Grid>
 
-          {/* 分析詳細 */}
+          {/* 分析詳細（気象統合版） */}
           {showAnalysisDetails && (
             <Accordion sx={{ mt: 2 }}>
               <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-                <Typography variant="subtitle2">分析詳細データ</Typography>
+                <Typography variant="subtitle2">分析詳細データ（気象統合）</Typography>
               </AccordionSummary>
               <AccordionDetails>
                 <TableContainer>
@@ -704,15 +884,29 @@ const RouteOptimizer = ({
                         <TableCell>{algorithmAnalysis.complexityFactors.totalPeople <= 10 ? '少' : algorithmAnalysis.complexityFactors.totalPeople <= 20 ? '中' : '多'}</TableCell>
                       </TableRow>
                       <TableRow>
-                        <TableCell>車両利用率</TableCell>
-                        <TableCell align="right">{(algorithmAnalysis.complexityFactors.vehicleUtilization * 100).toFixed(0)}%</TableCell>
-                        <TableCell>{algorithmAnalysis.complexityFactors.vehicleUtilization > 0.8 ? '高' : algorithmAnalysis.complexityFactors.vehicleUtilization > 0.5 ? '中' : '低'}</TableCell>
-                      </TableRow>
-                      <TableRow>
                         <TableCell>時間制約</TableCell>
                         <TableCell align="right">{algorithmAnalysis.complexityFactors.timeConstraints}件</TableCell>
                         <TableCell>{algorithmAnalysis.complexityFactors.timeConstraints > guests.length * 0.7 ? '厳格' : '緩い'}</TableCell>
                       </TableRow>
+                      <TableRow>
+                        <TableCell>🌊 気象複雑度</TableCell>
+                        <TableCell align="right">{algorithmAnalysis.complexityFactors.weatherComplexity}</TableCell>
+                        <TableCell>{algorithmAnalysis.complexityFactors.weatherComplexity > 15 ? '高' : algorithmAnalysis.complexityFactors.weatherComplexity > 5 ? '中' : '低'}</TableCell>
+                      </TableRow>
+                      {algorithmAnalysis.complexityFactors.weatherConditions && (
+                        <>
+                          <TableRow>
+                            <TableCell>風速</TableCell>
+                            <TableCell align="right">{algorithmAnalysis.complexityFactors.weatherConditions.wind_speed}km/h</TableCell>
+                            <TableCell>{algorithmAnalysis.complexityFactors.weatherConditions.wind_speed > 25 ? '強' : algorithmAnalysis.complexityFactors.weatherConditions.wind_speed > 15 ? '中' : '弱'}</TableCell>
+                          </TableRow>
+                          <TableRow>
+                            <TableCell>波高</TableCell>
+                            <TableCell align="right">{algorithmAnalysis.complexityFactors.weatherConditions.wave_height}m</TableCell>
+                            <TableCell>{algorithmAnalysis.complexityFactors.weatherConditions.wave_height > 2.0 ? '高' : algorithmAnalysis.complexityFactors.weatherConditions.wave_height > 1.0 ? '中' : '低'}</TableCell>
+                          </TableRow>
+                        </>
+                      )}
                     </TableBody>
                   </Table>
                 </TableContainer>
@@ -728,7 +922,7 @@ const RouteOptimizer = ({
     <Card sx={{ mb: 3 }}>
       <CardContent>
         <Typography variant="h6" gutterBottom>
-          智能最適化実行
+          智能最適化実行（動的時間決定）
         </Typography>
 
         <Stack direction="row" spacing={2} sx={{ mb: 2 }}>
@@ -769,6 +963,16 @@ const RouteOptimizer = ({
           >
             リセット
           </Button>
+
+          <Button
+            variant="text"
+            startIcon={<WeatherIcon />}
+            onClick={fetchWeatherData}
+            disabled={isOptimizing || isComparing}
+            color="info"
+          >
+            気象更新
+          </Button>
         </Stack>
 
         {(isOptimizing || isComparing) && (
@@ -795,23 +999,23 @@ const RouteOptimizer = ({
       <CardContent>
         <Stepper activeStep={activeStep} orientation="vertical">
           <Step>
-            <StepLabel>智能分析</StepLabel>
+            <StepLabel>智能分析・気象統合</StepLabel>
             <StepContent>
-              <Typography>データ複雑度を分析し、最適アルゴリズムを選択中...</Typography>
+              <Typography>データ複雑度と気象条件を分析し、動的時間決定に最適なアルゴリズムを選択中...</Typography>
             </StepContent>
           </Step>
           <Step>
-            <StepLabel>AI最適化処理</StepLabel>
+            <StepLabel>AI動的時間最適化</StepLabel>
             <StepContent>
               <Typography>
-                {algorithmAnalysis ? ALGORITHM_CONFIGS[algorithmAnalysis.selectedAlgorithm]?.name : 'アルゴリズム'}による最適化を実行中...
+                {algorithmAnalysis ? ALGORITHM_CONFIGS[algorithmAnalysis.selectedAlgorithm]?.name : 'アルゴリズム'}による気象考慮・時間動的決定最適化を実行中...
               </Typography>
             </StepContent>
           </Step>
           <Step>
-            <StepLabel>結果生成</StepLabel>
+            <StepLabel>結果生成・時間調整</StepLabel>
             <StepContent>
-              <Typography>最適化結果の生成と検証を完了しました</Typography>
+              <Typography>最適化結果の生成と動的時間調整を完了しました</Typography>
             </StepContent>
           </Step>
         </Stepper>
@@ -822,18 +1026,30 @@ const RouteOptimizer = ({
   const renderOptimizationResult = () => {
     if (!optimizationResult || !optimizationResult.success) return null;
 
+    const hasWeatherIntegration = optimizationResult.weather_integration?.enabled;
+    const weatherSummary = optimizationResult.weather_integration?.summary;
+
     return (
       <Card sx={{ mb: 3 }}>
         <CardContent>
           <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center' }}>
             <TrophyIcon sx={{ mr: 1, color: 'success.main' }} />
-            智能最適化結果
+            智能最適化結果（動的時間決定）
             {algorithmAnalysis && (
               <Chip
                 icon={getAlgorithmIcon(algorithmAnalysis.selectedAlgorithm)}
                 label={ALGORITHM_CONFIGS[algorithmAnalysis.selectedAlgorithm]?.name}
                 size="small"
-                sx={{ ml: 2, bgcolor: ALGORITHM_CONFIGS[algorithmAnalysis.selectedAlgorithm]?.color }}
+                sx={{ ml: 2, bgcolor: ALGORITHM_CONFIGS[algorithmAnalysis.selectedAlgorithm]?.color, color: 'white' }}
+              />
+            )}
+            {hasWeatherIntegration && (
+              <Chip
+                icon={<WeatherIcon />}
+                label="気象統合"
+                size="small"
+                color="info"
+                sx={{ ml: 1 }}
               />
             )}
           </Typography>
@@ -889,10 +1105,12 @@ const RouteOptimizer = ({
             </Grid>
           </Grid>
 
+          {/* 🕐 動的時間決定結果の詳細表示 */}
           {optimizationResult.routes && optimizationResult.routes.length > 0 && (
             <Box sx={{ mt: 3 }}>
-              <Typography variant="subtitle2" gutterBottom>
-                生成されたルート詳細:
+              <Typography variant="subtitle2" gutterBottom sx={{ display: 'flex', alignItems: 'center' }}>
+                <TimeIcon sx={{ mr: 1 }} />
+                🕐 動的時間決定結果:
               </Typography>
               <List dense>
                 {optimizationResult.routes.map((route, index) => (
@@ -902,12 +1120,43 @@ const RouteOptimizer = ({
                     </ListItemIcon>
                     <ListItemText
                       primary={`ルート ${index + 1}: ${route.vehicle_name || `車両${index + 1}`}`}
-                      secondary={`乗客: ${route.passenger_count || 0}名, 距離: ${route.distance?.toFixed(1) || 'N/A'}km`}
+                      secondary={
+                        <Box>
+                          <Typography variant="body2">
+                            乗客: {route.passenger_count || 0}名, 距離: {route.total_distance?.toFixed(1) || 'N/A'}km
+                          </Typography>
+                          {route.route && route.route.length > 0 && (
+                            <Typography variant="caption" color="text.secondary">
+                              出発: {route.route[0]?.pickup_time || 'N/A'} → 
+                              到着: {route.route[route.route.length - 1]?.final_destination?.arrival_time || 'N/A'}
+                            </Typography>
+                          )}
+                          {route.weather_impact_summary && (
+                            <Typography variant="caption" color="info.main" sx={{ display: 'block' }}>
+                              🌊 気象影響: 遅延係数{route.weather_impact_summary.travel_delay_factor?.toFixed(2)}
+                              ・快適度{route.weather_impact_summary.comfort_factor?.toFixed(2)}
+                            </Typography>
+                          )}
+                        </Box>
+                      }
                     />
                   </ListItem>
                 ))}
               </List>
             </Box>
+          )}
+
+          {/* 気象統合情報 */}
+          {hasWeatherIntegration && weatherSummary && (
+            <Alert severity="info" sx={{ mt: 2 }}>
+              <Typography variant="subtitle2">🌊 気象統合最適化完了</Typography>
+              <Typography variant="body2">
+                {weatherSummary.timing_adjustments?.total_routes || 0}ルートで気象条件を考慮した動的時間調整を実施
+                {weatherSummary.conditions && (
+                  <span> | 気象条件: 風速{weatherSummary.conditions.wind_speed}km/h・波高{weatherSummary.conditions.wave_height}m</span>
+                )}
+              </Typography>
+            </Alert>
           )}
         </CardContent>
       </Card>
@@ -963,6 +1212,15 @@ const RouteOptimizer = ({
                           sx={{ ml: 1 }}
                         />
                       )}
+                      {entry.weatherIntegration && (
+                        <Chip
+                          label="気象統合"
+                          size="small"
+                          color="info"
+                          variant="outlined"
+                          sx={{ ml: 1 }}
+                        />
+                      )}
                     </Box>
                   }
                   secondary={`${new Date(entry.timestamp).toLocaleString()} (${entry.optimization_time?.toFixed(2)}s)${entry.analysisConfidence ? ` | 信頼度: ${entry.analysisConfidence.toFixed(0)}%` : ''}`}
@@ -977,68 +1235,64 @@ const RouteOptimizer = ({
 
   // ========== Main Render ==========
   return (
-    <Container maxWidth="lg">
-      <Box sx={{ py: 3 }}>
-        {/* ヘッダー */}
-        <Box sx={{ mb: 4, textAlign: 'center' }}>
-          <Typography variant="h4" gutterBottom>
-            🧠 AI智能最適化システム
-          </Typography>
-          <Typography variant="body1" color="text.secondary">
-            データに基づいて最適なアルゴリズムを自動選択し、最高性能の配車最適化を実現
-          </Typography>
-          
-          {aiSystemStatus && (
-            <Box sx={{ mt: 2 }}>
-              <Chip
-                icon={<SmartIcon />}
-                label={`Smart AI v${aiSystemStatus.version || '2.4.0'}`}
-                color="primary"
-                variant="outlined"
-              />
-            </Box>
-          )}
-        </Box>
+    <Container maxWidth="xl" sx={{ py: 3 }}>
+      <Typography variant="h4" gutterBottom sx={{ display: 'flex', alignItems: 'center' }}>
+        <SmartIcon sx={{ mr: 2, color: 'primary.main', fontSize: 40 }} />
+        🧠 智能ルート最適化システム（動的時間決定版）
+        {aiSystemStatus && (
+          <Chip
+            label={aiSystemStatus.components?.optimizer === 'ready' ? 'AI搭載' : 'フォールバック'}
+            color={aiSystemStatus.components?.optimizer === 'ready' ? 'success' : 'warning'}
+            size="small"
+            sx={{ ml: 2 }}
+          />
+        )}
+      </Typography>
 
-        {/* タブシステム */}
-        <Paper sx={{ mb: 3 }}>
-          <Tabs
-            value={tabValue}
-            onChange={(e, newValue) => setTabValue(newValue)}
-            variant="fullWidth"
-          >
-            <Tab
-              icon={<SmartIcon />}
-              label="智能最適化"
-              iconPosition="start"
-            />
-            <Tab
-              icon={<CompareIcon />}
-              label="アルゴリズム比較"
-              iconPosition="start"
-              disabled={!comparisonResults}
-            />
-            <Tab
-              icon={<AssessmentIcon />}
-              label="履歴・ログ"
-              iconPosition="start"
-            />
-          </Tabs>
-        </Paper>
+      <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 3 }}>
+        <Tabs value={tabValue} onChange={(e, newValue) => setTabValue(newValue)}>
+          <Tab icon={<AutoFixIcon />} label="智能最適化" />
+          <Tab icon={<CompareIcon />} label="アルゴリズム比較" />
+          <Tab icon={<TimelineIcon />} label="履歴・ログ" />
+        </Tabs>
+      </Box>
 
-        {/* タブコンテンツ */}
+      <Box>
         {tabValue === 0 && (
           <>
             {renderPreOptimizationCheck()}
+            {renderWeatherStatus()}
             {renderSmartAnalysis()}
             {renderOptimizationControls()}
-            {(activeStep > 0 || isOptimizing) && renderOptimizationStepper()}
+            {isOptimizing && renderOptimizationStepper()}
             {renderOptimizationResult()}
           </>
         )}
 
         {tabValue === 1 && (
           <>
+            {renderPreOptimizationCheck()}
+            <Card sx={{ mb: 3 }}>
+              <CardContent>
+                <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center' }}>
+                  <CompareIcon sx={{ mr: 1 }} />
+                  全アルゴリズム比較（気象統合版）
+                </Typography>
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                  3つの最適化アルゴリズムを同時実行して性能を比較します。気象条件も考慮されます。
+                </Typography>
+                
+                <Button
+                  variant="contained"
+                  startIcon={isComparing ? <CircularProgress size={20} /> : <CompareIcon />}
+                  onClick={executeComparison}
+                  disabled={!preOptimizationCheck.allValid || isOptimizing || isComparing}
+                  color="secondary"
+                >
+                  {isComparing ? '比較実行中...' : '気象統合アルゴリズム比較開始'}
+                </Button>
+              </CardContent>
+            </Card>
             {renderComparisonResults()}
           </>
         )}
